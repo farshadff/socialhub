@@ -1,0 +1,141 @@
+openapi: 3.1.0
+info:
+  title: Social Hub API
+  version: 1.0.0
+  description: Local fixture API. All listed sample content is synthetic.
+servers:
+  - url: http://localhost:8000
+paths:
+  /api/v1/:
+    get:
+      operationId: getApiRoot
+      responses:
+        "200":
+          description: API version information.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [service, version]
+                properties:
+                  service: { type: string }
+                  version: { type: string }
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/health/live/:
+    get:
+      operationId: getLiveness
+      responses:
+        "200":
+          description: Django process is responding.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: alive }
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/health/ready/:
+    get:
+      operationId: getReadiness
+      responses:
+        "200":
+          description: Dependencies are ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+        "503":
+          description: One or more dependencies are unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/demo/:
+    get:
+      operationId: getLocalDemo
+      description: Returns deterministic synthetic source and model fixtures; never publishes.
+      responses:
+        "200":
+          description: Local fixture adapter summary.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [mode, source_mode, account_timezone, source_provider, model_provider, publisher_provider, publishing_enabled, source_items, model_preview]
+                properties:
+                  mode: { type: string, const: local_fixture }
+                  source_mode: { type: string, const: combined }
+                  account_timezone: { type: string, const: Asia/Tehran }
+                  source_provider: { type: string, const: fixture }
+                  model_provider: { type: string, const: fixture }
+                  publisher_provider: { type: string, const: disabled }
+                  publishing_enabled: { type: boolean, const: false }
+                  source_items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SyntheticSourceItem"
+                  model_preview:
+                    type: object
+                    required: [caption, is_synthetic]
+                    properties:
+                      caption: { type: string }
+                      is_synthetic: { type: boolean, const: true }
+        default:
+          $ref: "#/components/responses/ApiError"
+components:
+  schemas:
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, fields, request_id, retryable]
+          properties:
+            code:
+              type: string
+              enum: [validation_error, authentication_required, permission_denied, not_found, method_not_allowed, rate_limited, state_conflict, payload_too_large, service_unavailable, service_timeout, upstream_error, server_error, request_error, csrf_failed]
+            message: { type: string, description: Persian operator-safe message. }
+            fields:
+              type: array
+              items:
+                type: object
+                required: [path, code, message]
+                properties:
+                  path: { type: string }
+                  code: { type: string }
+                  message: { type: string }
+            request_id: { type: string, format: uuid }
+            retryable: { type: boolean }
+    Readiness:
+      type: object
+      required: [status, dependencies]
+      properties:
+        status: { type: string, enum: [ready, not_ready] }
+        dependencies:
+          type: object
+          additionalProperties: { type: string, enum: [ok, unavailable] }
+    SyntheticSourceItem:
+      type: object
+      required: [source_key, source_type, title, canonical_url, published_at, status, eligibility, is_synthetic]
+      properties:
+        source_key: { type: string }
+        source_type: { type: string, const: company_feed }
+        title: { type: string }
+        canonical_url: { type: string, format: uri }
+        published_at: { type: string, format: date-time }
+        status: { type: string, const: demo_only }
+        eligibility: { type: string, const: not_for_publication }
+        is_synthetic: { type: boolean, const: true }
+  responses:
+    ApiError:
+      description: Safe structured API error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"

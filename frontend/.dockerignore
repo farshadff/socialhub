@@ -1,0 +1,9 @@
+node_modules
+.umi
+dist
+coverage
+e2e-out
+playwright-report
+test-results
+.git
+.agents

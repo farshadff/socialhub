@@ -1,0 +1,28 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.sqlite3
+.venv/
+venv/
+.ruff_cache/
+.pytest_cache/
+
+# JavaScript
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Generated application data
+backend/media/
+backend/staticfiles/
+*.log
+
+# Editors and OS files
+.DS_Store
+.idea/
+.vscode/

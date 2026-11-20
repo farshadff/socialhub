@@ -1,0 +1,12 @@
+[
+  {
+    "source_key": "fixture:company-feed:transport-001",
+    "source_type": "company_feed",
+    "title": "Synthetic development sample for the research interface",
+    "canonical_url": "https://example.invalid/socialhub/fixtures/transport-001",
+    "published_at": "2026-01-15T08:00:00Z",
+    "status": "demo_only",
+    "eligibility": "not_for_publication",
+    "is_synthetic": true
+  }
+]

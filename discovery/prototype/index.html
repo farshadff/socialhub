@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>نمونه اولیه پنل Social Hub</title>
+  <style>
+    :root {
+      font-family: Tahoma, "Segoe UI", sans-serif;
+      color: #202c3a;
+      background: #f4f6f8;
+      font-synthesis: none;
+      --ink: #202c3a;
+      --muted: #6b7785;
+      --line: #e2e7eb;
+      --paper: #fff;
+      --wash: #f7f9fa;
+      --teal: #16756c;
+      --teal-soft: #e5f3f0;
+      --amber: #a65e16;
+      --amber-soft: #fff3df;
+      --red: #a34545;
+      --red-soft: #fbebeb;
+      --blue: #466b9c;
+      --shadow: 0 12px 30px rgba(30, 48, 62, .06);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; }
+    button, input, textarea { font: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 3px solid #65aaa1; outline-offset: 2px; }
+    .frame { min-height: 100vh; display: grid; grid-template-columns: 240px minmax(0, 1fr); }
+    aside { grid-column: 2; grid-row: 1; background: #fff; border-left: 1px solid var(--line); padding: 26px 18px; }
+    main { grid-column: 1; grid-row: 1; max-width: 1500px; width: 100%; padding: 28px clamp(18px, 4vw, 54px) 56px; margin-inline: auto; }
+    .brand { display: flex; align-items: center; gap: 11px; padding: 0 9px 27px; }
+    .brand-mark { width: 38px; height: 38px; border-radius: 13px; display: grid; place-items: center; color: #fff; background: var(--teal); font-size: 19px; font-weight: 700; }
+    .brand strong { display: block; font-size: 15px; }
+    .brand small { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; direction: ltr; text-align: right; }
+    .nav-label { font-size: 11px; color: #9099a3; padding: 7px 11px; }
+    .nav-list { display: grid; gap: 5px; }
+    .nav-button { border: 0; background: transparent; border-radius: 10px; color: #586574; display: flex; align-items: center; gap: 11px; text-align: right; padding: 11px 12px; width: 100%; font-size: 13px; }
+    .nav-button:hover { background: var(--wash); }
+    .nav-button[aria-current="page"] { background: var(--teal-soft); color: #145d56; font-weight: 700; }
+    .nav-icon { width: 19px; text-align: center; font-size: 16px; }
+    .account-box { border: 1px solid var(--line); border-radius: 12px; padding: 13px; margin-top: 28px; background: #fcfdfd; }
+    .account-box span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 7px; }
+    .account-box strong { font-size: 13px; }
+    .account-box small { display: block; font-size: 11px; color: var(--muted); margin-top: 7px; }
+    .topline { display: flex; gap: 18px; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
+    h1 { margin: 0; font-size: clamp(21px, 2.7vw, 30px); letter-spacing: -.4px; }
+    .subtitle { color: var(--muted); font-size: 13px; margin: 9px 0 0; line-height: 1.9; }
+    .demo-tag { white-space: nowrap; border-radius: 999px; background: #eff2f4; color: #5f6b77; padding: 8px 12px; font-size: 11px; }
+    .demo-banner { display: flex; align-items: flex-start; gap: 10px; padding: 13px 15px; border: 1px solid #f0d8ad; background: #fff8eb; color: #755126; border-radius: 12px; font-size: 12px; line-height: 1.8; margin: 20px 0 24px; }
+    .demo-banner b { color: #684514; }
+    .view { display: none; }
+    .view.active { display: block; }
+    .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 27px 0 14px; }
+    h2 { font-size: 17px; margin: 0; }
+    h3 { font-size: 14px; margin: 0; }
+    .muted { color: var(--muted); }
+    .small { font-size: 11px; }
+    .grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(260px, .75fr); gap: 16px; align-items: start; }
+    .card { background: var(--paper); border: 1px solid var(--line); border-radius: 15px; box-shadow: var(--shadow); }
+    .card-pad { padding: 19px; }
+    .card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .kicker { color: var(--muted); font-size: 11px; margin-top: 5px; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 6px 9px; font-size: 10px; white-space: nowrap; }
+    .pill.ready { background: var(--teal-soft); color: #12655c; }
+    .pill.hold { background: var(--amber-soft); color: #875014; }
+    .pill.failed { background: var(--red-soft); color: #9a3f3f; }
+    .pill.neutral { background: #edf1f5; color: #526172; }
+    .content-layout { display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 20px; margin-top: 20px; }
+    .preview { min-height: 230px; border-radius: 12px; background: linear-gradient(145deg, #dcefeb, #f1e5cf 72%, #f5d8bb); padding: 22px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; position: relative; }
+    .preview::after { content: ""; position: absolute; left: -45px; top: -55px; width: 180px; height: 180px; border: 1px solid rgba(22,117,108,.18); border-radius: 50%; box-shadow: 0 0 0 22px rgba(22,117,108,.05), 0 0 0 48px rgba(22,117,108,.04); }
+    .preview small, .preview strong, .preview span { position: relative; z-index: 1; }
+    .preview small { font-size: 11px; color: #32665e; }
+    .preview strong { font-size: 20px; line-height: 1.8; max-width: 340px; }
+    .preview span { font-size: 11px; color: #52615e; }
+    .facts { display: grid; gap: 12px; align-content: start; }
+    .fact { border-bottom: 1px solid var(--line); padding-bottom: 11px; }
+    .fact:last-child { border-bottom: 0; }
+    .fact span { display: block; color: var(--muted); font-size: 10px; margin-bottom: 5px; }
+    .fact strong { font-size: 12px; font-weight: 600; }
+    .divider { height: 1px; background: var(--line); margin: 18px 0; }
+    .caption-label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 8px; }
+    .caption-text { margin: 0; font-size: 13px; line-height: 2.1; color: #394653; }
+    textarea { width: 100%; min-height: 118px; border: 1px solid #ccd7dc; border-radius: 10px; padding: 12px; line-height: 2; color: var(--ink); resize: vertical; background: #fff; }
+    .actions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 16px; }
+    .btn { border: 1px solid #d4dce1; border-radius: 9px; padding: 9px 13px; background: #fff; color: #364553; font-size: 12px; }
+    .btn:hover { background: #f8fafb; }
+    .btn.primary { color: #fff; border-color: var(--teal); background: var(--teal); }
+    .btn.primary:hover { background: #105f57; }
+    .btn.warn { color: #8a5017; border-color: #eed4a8; background: #fff8eb; }
+    .btn.danger { color: #9a4545; border-color: #eacaca; background: #fff; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .checks { display: grid; gap: 10px; margin-top: 15px; }
+    .check { display: flex; align-items: flex-start; gap: 9px; font-size: 11px; line-height: 1.7; }
+    .check-mark { flex: 0 0 19px; height: 19px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 700; }
+    .check-mark.ok { color: var(--teal); background: var(--teal-soft); }
+    .check-mark.warn { color: var(--amber); background: var(--amber-soft); }
+    .check-mark.no { color: var(--red); background: var(--red-soft); }
+    .source-link { display: inline-block; margin-top: 8px; color: var(--blue); font-size: 11px; text-decoration: none; direction: ltr; unicode-bidi: isolate; }
+    .source-link:hover { text-decoration: underline; }
+    .alert-card { border-right: 3px solid #d39c4b; }
+    .exception-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 13px; align-items: start; padding: 16px 0; border-bottom: 1px solid var(--line); }
+    .exception-item:last-child { border-bottom: 0; }
+    .exception-dot { width: 34px; height: 34px; display: grid; place-items: center; color: var(--amber); background: var(--amber-soft); border-radius: 10px; }
+    .exception-item p { font-size: 12px; line-height: 1.8; margin: 6px 0 0; color: var(--muted); }
+    .row-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 11px; }
+    .inline-status { min-height: 20px; margin-top: 12px; font-size: 11px; color: var(--teal); }
+    .calendar-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .week-label { font-size: 13px; font-weight: 700; margin-inline: 3px 8px; }
+    .pause-box { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 17px 19px; margin: 16px 0; background: var(--teal-soft); border: 1px solid #c9e5df; border-radius: 13px; }
+    .pause-box.paused { background: var(--amber-soft); border-color: #edd5ad; }
+    .pause-box p { margin: 5px 0 0; color: #5d6b72; font-size: 11px; line-height: 1.8; }
+    .slot { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; align-items: center; gap: 15px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+    .slot:last-child { border-bottom: 0; }
+    .slot-time { font-size: 12px; font-weight: 700; }
+    .slot-time small { display: block; margin-top: 5px; font-size: 10px; color: var(--muted); font-weight: 400; }
+    .slot-title { font-size: 12px; font-weight: 700; }
+    .slot-meta { margin-top: 6px; color: var(--muted); font-size: 10px; }
+    .slot-actions { display: flex; align-items: center; gap: 8px; }
+    .toast { position: fixed; bottom: 22px; inset-inline-start: 22px; max-width: min(420px, calc(100vw - 44px)); background: #243744; color: #fff; border-radius: 11px; padding: 13px 16px; font-size: 12px; line-height: 1.7; box-shadow: 0 14px 35px rgba(10,28,40,.2); opacity: 0; transform: translateY(12px); pointer-events: none; transition: .2s ease; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    dialog { width: min(440px, calc(100vw - 32px)); border: 1px solid var(--line); border-radius: 14px; padding: 0; color: var(--ink); box-shadow: 0 22px 70px rgba(20,38,50,.24); }
+    dialog::backdrop { background: rgba(24,37,46,.35); }
+    .dialog-inner { padding: 21px; }
+    .dialog-inner p { font-size: 12px; line-height: 1.8; color: var(--muted); }
+    .dialog-inner label { display: block; font-size: 11px; margin: 15px 0 7px; }
+    .dialog-inner input { border: 1px solid #ccd7dc; border-radius: 8px; padding: 10px; width: 100%; direction: ltr; }
+    .dialog-actions { display: flex; gap: 8px; justify-content: flex-start; margin-top: 17px; }
+    .footer-note { color: #818b94; font-size: 10px; text-align: center; padding: 20px 0 4px; }
+    @media (max-width: 900px) {
+      .frame { display: flex; flex-direction: column; }
+      aside { order: 0; border-left: 0; border-bottom: 1px solid var(--line); padding: 11px 14px; }
+      .brand { padding: 0 4px 10px; }
+      .nav-label, .account-box { display: none; }
+      .nav-list { display: flex; gap: 4px; overflow-x: auto; }
+      .nav-button { width: auto; white-space: nowrap; padding: 9px 11px; }
+      main { order: 1; padding-top: 20px; }
+    }
+    @media (max-width: 650px) {
+      .topline { display: block; }
+      .demo-tag { display: inline-flex; margin-top: 12px; }
+      .grid { grid-template-columns: 1fr; }
+      .content-layout { grid-template-columns: 1fr; }
+      .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .exception-item { grid-template-columns: auto minmax(0, 1fr); }
+      .exception-item > .pill { grid-column: 2; justify-self: start; }
+      .slot { grid-template-columns: 86px minmax(0, 1fr); gap: 10px; }
+      .slot-actions { grid-column: 2; }
+      .pause-box { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <aside aria-label="پیمایش اصلی">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">س</div>
+        <div><strong>هاب اجتماعی</strong><small>Social Hub · Pilot</small></div>
+      </div>
+      <div class="nav-label">فضای کاری</div>
+      <nav class="nav-list" aria-label="صفحه‌ها">
+        <button class="nav-button" data-view="content" aria-current="page"><span class="nav-icon" aria-hidden="true">▤</span>پیش‌نویس محتوا</button>
+        <button class="nav-button" data-view="exceptions"><span class="nav-icon" aria-hidden="true">◉</span>موارد نیازمند بررسی <span class="pill hold">۲</span></button>
+        <button class="nav-button" data-view="calendar"><span class="nav-icon" aria-hidden="true">▦</span>تقویم انتشار</button>
+      </nav>
+      <div class="account-box">
+        <span>حساب نمایشی</span>
+        <strong>برند نمونه</strong>
+        <small>حالت: سایه · انتشار خودکار خاموش</small>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topline">
+        <div>
+          <h1 id="page-title">بررسی محتوای آماده</h1>
+          <p class="subtitle" id="page-subtitle">نسخه، شواهد و نتیجه بررسی‌ها را پیش از ورود به تقویم ببینید.</p>
+        </div>
+        <span class="demo-tag">نمونه اولیه تعاملی · داده نمایشی</span>
+      </header>
+
+      <div class="demo-banner" role="note">
+        <span aria-hidden="true">ⓘ</span>
+        <div><b>این صفحه فقط نمونه تعاملی است.</b> هیچ داده‌ای ذخیره یا به Instagram ارسال نمی‌شود. تاریخ‌ها، برند و نتایج بررسی نمایشی‌اند؛ منطقه زمانی و تقویم حساب هنوز تعیین نشده‌اند.</div>
+      </div>
+
+      <section class="view active" id="view-content" aria-labelledby="page-title">
+        <div class="grid">
+          <article class="card card-pad">
+            <div class="card-top">
+              <div>
+                <h2>این هفته: داده‌های حمل‌ونقل پاک</h2>
+                <div class="kicker"><bdi dir="ltr">DRAFT-024 · rev 3</bdi> &nbsp;·&nbsp; منبع شرکت</div>
+              </div>
+              <span class="pill hold" id="draft-state">● متوقف‌شده · حقوق رسانه</span>
+            </div>
+            <div class="content-layout">
+              <div class="preview" aria-label="پیش‌نمایش نمایشی تصویر فارسی">
+                <small>نگاهی به داده‌های تازه</small>
+                <strong>رشد جابه‌جایی پاک در شهرها</strong>
+                <span>مقایسه روند سالانه · واحد و منبع در شرح پست</span>
+              </div>
+              <div class="facts" aria-label="جزئیات نسخه">
+                <div class="fact"><span>قالب</span><strong>اینفوگرافیک تک‌تصویر</strong></div>
+                <div class="fact"><span>نسخه جاری</span><strong id="revision-label">ویرایش ۳</strong></div>
+                <div class="fact"><span>منبع داده</span><strong>گزارش داخلی شرکت</strong></div>
+                <div class="fact"><span>زمان بررسی</span><strong>امروز، ۱۰:۴۲</strong></div>
+              </div>
+            </div>
+            <div class="divider"></div>
+            <label class="caption-label" for="caption">شرح فارسی</label>
+            <p class="caption-text" id="caption-preview">در سال گذشته، استفاده از مسیرهای کم‌انتشار در شهرهای بررسی‌شده بیشتر شد. در این نمودار، تغییرات را کنار منبع و بازه زمانی می‌بینید. برای جزئیات بیشتر، گزارش کامل را بخوانید.</p>
+            <textarea id="caption" hidden aria-label="ویرایش شرح فارسی">در سال گذشته، استفاده از مسیرهای کم‌انتشار در شهرهای بررسی‌شده بیشتر شد. در این نمودار، تغییرات را کنار منبع و بازه زمانی می‌بینید. برای جزئیات بیشتر، گزارش کامل را بخوانید.</textarea>
+            <div class="actions">
+              <button class="btn" id="edit-caption">ویرایش شرح</button>
+              <button class="btn primary" id="save-caption" hidden>ذخیره نسخه تازه</button>
+              <button class="btn" id="request-recheck">درخواست بررسی دوباره</button>
+            </div>
+            <div class="inline-status" id="draft-message" aria-live="polite"></div>
+          </article>
+
+          <aside class="card card-pad" aria-label="نتایج بررسی">
+            <div class="card-top"><h3>بررسی‌های مستقل</h3><span class="pill neutral">نسخه ۳</span></div>
+            <div class="checks">
+              <div class="check"><span class="check-mark ok">✓</span><span><b>منبع و اعداد</b><br><span class="muted">ارجاع برای هر رقم موجود است.</span></span></div>
+              <div class="check"><span class="check-mark ok">✓</span><span><b>فارسی و نیم‌فاصله</b><br><span class="muted">نیاز به اصلاح گزارش نشده.</span></span></div>
+              <div class="check"><span class="check-mark warn">!</span><span><b>حقوق رسانه</b><br><span class="muted">مالکیت تصویر جلد باید ثبت شود.</span></span></div>
+              <div class="check"><span class="check-mark ok">✓</span><span><b>قالب پلتفرم</b><br><span class="muted">برای پیش‌نمایش تک‌تصویر مناسب است.</span></span></div>
+            </div>
+            <div class="divider"></div>
+            <h3>شواهد منبع</h3>
+            <a class="source-link" href="https://example.invalid/report/42" target="_blank" rel="noreferrer">example.invalid/report/42 ↗</a>
+            <p class="small muted">نشانی بالا نمایشی است و منبع واقعی نیست.</p>
+            <div class="actions"><button class="btn warn" id="open-exceptions">دیدن موارد نیازمند بررسی</button></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-exceptions" aria-labelledby="page-title" hidden>
+        <div class="section-head">
+          <div><h2>صف بررسی موارد متوقف‌شده</h2><p class="subtitle">هر مورد علت، محتوای مرتبط و اقدام مجاز خودش را دارد.</p></div>
+          <span class="pill hold">۲ مورد باز</span>
+        </div>
+        <div class="card card-pad alert-card">
+          <div class="exception-item">
+            <span class="exception-dot" aria-hidden="true">!</span>
+            <div>
+              <h3>مالکیت تصویر جلد ثبت نشده</h3>
+              <p><bdi dir="ltr">DRAFT-024 · rev 3</bdi> · انتشار متوقف است تا مدرک مالکیت یا مجوز به این نسخه پیوند داده شود.</p>
+              <div class="row-actions"><button class="btn primary" id="fix-rights">بازبینی پیش‌نویس</button><button class="btn" id="retry-check">درخواست بررسی دوباره</button></div>
+              <div class="inline-status" id="exception-message" aria-live="polite"></div>
+            </div>
+            <span class="pill hold">متوقف‌شده</span>
+          </div>
+          <div class="exception-item">
+            <span class="exception-dot" aria-hidden="true">↻</span>
+            <div>
+              <h3>همگام‌سازی منبع کامل نشده</h3>
+              <p><bdi dir="ltr">FEED-008</bdi> · آخرین دریافت موفق قدیمی است؛ تا تأیید تازه‌بودن داده، این مورد واجد شرایط نیست.</p>
+              <div class="row-actions"><button class="btn" id="refresh-source">درخواست همگام‌سازی</button><button class="btn" id="show-source-blocker">دیدن جزئیات منبع</button></div>
+              <div class="inline-status" id="source-message" aria-live="polite"></div>
+            </div>
+            <span class="pill failed">نیازمند پیگیری</span>
+          </div>
+        </div>
+        <p class="footer-note">نمونه استثناها ساختگی‌اند. دکمه‌ها فقط وضعیت نمایشی صفحه را تغییر می‌دهند.</p>
+      </section>
+
+      <section class="view" id="view-calendar" aria-labelledby="page-title" hidden>
+        <div class="section-head">
+          <div><h2>برنامه این هفته</h2><p class="subtitle">تقویم نمونه است؛ زمان واقعی حساب باید از تنظیمات همان حساب بیاید.</p></div>
+          <div class="calendar-toolbar"><button class="btn" id="prev-week" aria-label="هفته قبل">‹</button><span class="week-label" id="week-label">۲۵ تا ۳۱ آبان ۱۴۰۵ · نمایشی</span><button class="btn" id="next-week" aria-label="هفته بعد">›</button></div>
+        </div>
+        <div class="pause-box" id="pause-box">
+          <div><strong id="pause-title">انتشار حساب فعال است</strong><p id="pause-description">محتوای زمان‌بندی‌شده طبق کنترل‌های نهایی دوباره بررسی می‌شود.</p></div>
+          <button class="btn warn" id="pause-toggle" aria-pressed="false">توقف حساب</button>
+        </div>
+        <div class="card" id="slot-list">
+          <div class="slot" data-slot="one">
+            <div class="slot-time">سه‌شنبه<small>۱۴:۳۰ · زمان نمونه</small></div>
+            <div><div class="slot-title">داده‌های حمل‌ونقل پاک</div><div class="slot-meta">تک‌تصویر · <span class="slot-date">۲۷ آبان</span> · نسخه ۳</div></div>
+            <div class="slot-actions"><span class="pill hold">نیازمند اصلاح</span><button class="btn reschedule" data-slot="one">تغییر زمان</button></div>
+          </div>
+          <div class="slot" data-slot="two">
+            <div class="slot-time">پنج‌شنبه<small>۱۸:۰۰ · زمان نمونه</small></div>
+            <div><div class="slot-title">نکته‌های کوتاه بازار</div><div class="slot-meta">ویدئوی کوتاه · <span class="slot-date">۲۹ آبان</span> · در صف آماده‌سازی</div></div>
+            <div class="slot-actions"><span class="pill neutral">در حال آماده‌سازی</span><button class="btn reschedule" data-slot="two">تغییر زمان</button></div>
+          </div>
+          <div class="slot" data-slot="three">
+            <div class="slot-time">شنبه<small>۱۱:۰۰ · زمان نمونه</small></div>
+            <div><div class="slot-title">جای خالی برای موضوع واجد شرایط</div><div class="slot-meta">اگر موضوع مناسبی پیدا نشود، جای خالی می‌ماند.</div></div>
+            <div class="slot-actions"><span class="pill neutral">باز</span><button class="btn" id="view-candidates">دیدن نامزدها</button></div>
+          </div>
+        </div>
+        <div class="section-head"><h2>پس از توقف یا ادامه</h2></div>
+        <div class="card card-pad">
+          <div class="check"><span class="check-mark warn">i</span><span><b>ادامه‌دادن باعث انتشار خودکار صف قبلی نمی‌شود.</b><br><span class="muted">ابتدا موارد واجد شرایط را مرور کنید، زمان‌بندی را صریحاً انتخاب کنید و بررسی‌ها را دوباره اجرا کنید.</span></span></div>
+          <div class="actions"><button class="btn" id="review-backlog">مرور موارد قابل زمان‌بندی</button></div>
+          <div class="inline-status" id="calendar-message" aria-live="polite"></div>
+        </div>
+        <p class="footer-note">برای نمایش از تاریخ نمونه استفاده شده؛ تبدیل جلالی/میلادی و منطقه زمانی هنوز پیاده‌سازی نشده است.</p>
+      </section>
+
+      <footer class="footer-note">نمونه اولیه US-001 · بدون اتصال به API، پایگاه داده یا سرویس انتشار</footer>
+    </main>
+  </div>
+
+  <dialog id="reschedule-dialog" aria-labelledby="dialog-title">
+    <form method="dialog" class="dialog-inner" id="reschedule-form">
+      <h2 id="dialog-title">تغییر زمان این محتوا</h2>
+      <p>این انتخاب در نمونه صفحه ذخیره می‌شود. قبل از زمان‌بندی واقعی باید منطقه زمانی و تقویم حساب تأیید شده و بررسی‌ها روی نسخه جاری موفق باشند.</p>
+      <label for="new-slot-time">زمان جدید (برای نمونه)</label>
+      <input id="new-slot-time" type="datetime-local" required>
+      <div class="dialog-actions"><button class="btn" value="cancel">انصراف</button><button class="btn primary" id="save-slot" value="save">ذخیره زمان نمایشی</button></div>
+    </form>
+  </dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (() => {
+      const titles = {
+        content: ["بررسی محتوای آماده", "نسخه، شواهد و نتیجه بررسی‌ها را پیش از ورود به تقویم ببینید."],
+        exceptions: ["موارد نیازمند بررسی", "علت توقف و گام بعدی را برای هر مورد جداگانه دنبال کنید."],
+        calendar: ["تقویم انتشار", "زمان‌بندی، توقف حساب و ادامه امن را در یک نگاه مدیریت کنید."]
+      };
+      const views = [...document.querySelectorAll(".view")];
+      const navButtons = [...document.querySelectorAll(".nav-button[data-view]")];
+      let activeSlot = null;
+      let revision = 3;
+      let toastTimer;
+
+      function toast(message) {
+        const node = document.getElementById("toast");
+        node.textContent = message;
+        node.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => node.classList.remove("show"), 3200);
+      }
+      function showView(name) {
+        views.forEach(view => {
+          const selected = view.id === `view-${name}`;
+          view.classList.toggle("active", selected);
+          view.hidden = !selected;
+        });
+        navButtons.forEach(button => {
+          if (button.dataset.view === name) button.setAttribute("aria-current", "page");
+          else button.removeAttribute("aria-current");
+        });
+        document.getElementById("page-title").textContent = titles[name][0];
+        document.getElementById("page-subtitle").textContent = titles[name][1];
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+      navButtons.forEach(button => button.addEventListener("click", () => showView(button.dataset.view)));
+      document.getElementById("open-exceptions").addEventListener("click", () => showView("exceptions"));
+      document.getElementById("fix-rights").addEventListener("click", () => {
+        showView("content");
+        document.getElementById("draft-message").textContent = "نسخه مرتبط باز شد؛ مدرک مجوز باید به‌صورت واقعی پیوست شود.";
+        document.getElementById("caption").focus();
+      });
+      document.getElementById("edit-caption").addEventListener("click", () => {
+        const editor = document.getElementById("caption");
+        editor.hidden = false;
+        editor.focus();
+        document.getElementById("edit-caption").hidden = true;
+        document.getElementById("save-caption").hidden = false;
+        document.getElementById("draft-message").textContent = "ویرایش روی نسخه تازه ذخیره خواهد شد.";
+      });
+      document.getElementById("save-caption").addEventListener("click", () => {
+        const editor = document.getElementById("caption");
+        if (!editor.value.trim()) { editor.focus(); toast("شرح نمی‌تواند خالی باشد."); return; }
+        revision += 1;
+        document.getElementById("caption-preview").textContent = editor.value.trim();
+        document.getElementById("revision-label").textContent = `ویرایش ${revision}`;
+        document.querySelector(".kicker bdi").textContent = `DRAFT-024 · rev ${revision}`;
+        document.querySelectorAll(".checks .check").forEach(row => {
+          const checkName = row.querySelector("b").textContent;
+          const mark = row.querySelector(".check-mark");
+          mark.textContent = "↻";
+          mark.className = "check-mark warn";
+          row.querySelector("span:nth-child(2)").innerHTML = `<b>${checkName}</b><br><span class="muted">نتیجه نسخه قبلی است؛ بررسی دوباره لازم است.</span>`;
+        });
+        document.getElementById("draft-state").textContent = "● بررسی‌های نسخه تازه لازم است";
+        document.getElementById("draft-state").className = "pill hold";
+        document.getElementById("draft-message").textContent = `نسخه ${revision} به‌صورت نمایشی ساخته شد؛ نتیجه بررسی نسخه قبلی به آن منتقل نمی‌شود.`;
+        editor.hidden = true;
+        document.getElementById("edit-caption").hidden = false;
+        document.getElementById("save-caption").hidden = true;
+        toast("نسخه تازه ساخته شد؛ بررسی‌ها باید دوباره اجرا شوند.");
+      });
+      document.getElementById("request-recheck").addEventListener("click", () => {
+        document.getElementById("draft-message").textContent = "درخواست بررسی دوباره فقط نمایشی است؛ هیچ کاری به سرویس ارسال نشده.";
+        document.getElementById("draft-state").textContent = "● در صف بررسی نمایشی";
+        document.getElementById("draft-state").className = "pill neutral";
+      });
+      document.getElementById("retry-check").addEventListener("click", () => {
+        document.getElementById("exception-message").textContent = "درخواست بررسی ثبت نمایشی شد؛ نتیجه و اقدام واقعی وجود ندارد.";
+      });
+      document.getElementById("refresh-source").addEventListener("click", () => {
+        document.getElementById("source-message").textContent = "همگام‌سازی در این نمونه اجرا نمی‌شود؛ وضعیت منبع همچنان نیازمند بررسی است.";
+      });
+      document.getElementById("show-source-blocker").addEventListener("click", () => {
+        document.getElementById("source-message").textContent = "مسیر و دسترسی منبع واقعی هنوز برای پایلوت تعیین نشده است.";
+      });
+      document.getElementById("prev-week").addEventListener("click", () => toast("نمای هفته قبل در این نمونه فقط تعاملی است."));
+      document.getElementById("next-week").addEventListener("click", () => toast("نمای هفته بعد در این نمونه فقط تعاملی است."));
+      document.getElementById("view-candidates").addEventListener("click", () => toast("هنوز منبع واقعی برای نامزدها متصل نیست."));
+
+      const pauseToggle = document.getElementById("pause-toggle");
+      pauseToggle.addEventListener("click", () => {
+        const paused = pauseToggle.getAttribute("aria-pressed") !== "true";
+        pauseToggle.setAttribute("aria-pressed", String(paused));
+        pauseToggle.textContent = paused ? "ادامه حساب" : "توقف حساب";
+        document.getElementById("pause-box").classList.toggle("paused", paused);
+        document.getElementById("pause-title").textContent = paused ? "حساب متوقف است" : "انتشار حساب فعال است";
+        document.getElementById("pause-description").textContent = paused
+          ? "کار تازه‌ای برای انتشار شروع نمی‌شود؛ موارد زمان‌بندی‌شده برای بازبینی نگه داشته می‌شوند."
+          : "صف قبلی خودکار منتشر نمی‌شود؛ هر مورد باید بازبینی و دوباره زمان‌بندی شود.";
+        document.getElementById("calendar-message").textContent = paused
+          ? "توقف در این نمونه فعال شد."
+          : "حساب ادامه یافت؛ هیچ موردی خودکار زمان‌بندی یا منتشر نشد.";
+      });
+      document.getElementById("review-backlog").addEventListener("click", () => {
+        document.getElementById("calendar-message").textContent = "۲ مورد نیازمند بازبینی هستند؛ این فهرست نمایشی است و انتشار انجام نمی‌دهد.";
+        toast("پیش از زمان‌بندی مجدد، نسخه و بررسی هر مورد را مرور کنید.");
+      });
+
+      const dialog = document.getElementById("reschedule-dialog");
+      document.querySelectorAll(".reschedule").forEach(button => button.addEventListener("click", () => {
+        activeSlot = button.dataset.slot;
+        dialog.showModal();
+        document.getElementById("new-slot-time").focus();
+      }));
+      document.getElementById("reschedule-form").addEventListener("submit", event => {
+        const submitter = event.submitter;
+        if (!submitter || submitter.value !== "save") return;
+        event.preventDefault();
+        const input = document.getElementById("new-slot-time");
+        if (!input.value) { input.reportValidity(); return; }
+        const parsed = new Date(input.value);
+        const dateText = new Intl.DateTimeFormat("fa-IR", { month: "long", day: "numeric" }).format(parsed);
+        const timeText = new Intl.DateTimeFormat("fa-IR", { hour: "2-digit", minute: "2-digit" }).format(parsed);
+        const slot = document.querySelector(`.slot[data-slot="${activeSlot}"]`);
+        slot.querySelector(".slot-time").innerHTML = `زمان تازه<small>${timeText} · نمونه</small>`;
+        slot.querySelector(".slot-date").textContent = dateText;
+        dialog.close();
+        document.getElementById("calendar-message").textContent = "زمان نمایشی ذخیره شد؛ انتشار واقعی انجام نمی‌شود.";
+        toast("زمان جدید فقط در همین صفحه نمونه نمایش داده شد.");
+      });
+    })();
+  </script>
+</body>
+</html>
