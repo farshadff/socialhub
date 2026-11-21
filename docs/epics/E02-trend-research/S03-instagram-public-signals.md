@@ -3,10 +3,10 @@
 | | |
 | --- | --- |
 | Epic | E02 Trend research |
-| Priority | Should |
-| Estimate | BE 2 d · FE 0 d · QA 0 d |
-| Depends on | E02-S02, E00-S04 |
-| Needed by | E02-S04 (optional input) |
+| Priority | Later |
+| Estimate | Not scheduled (estimated BE 2 d when scheduled) |
+| Depends on | E02-S02, E00-S04; the `graph_api_fb` adapter with Facebook Login (not in the MVP) |
+| Needed by | None in the MVP. E02-S04 would use its signals as extra input |
 
 ## User story
 
@@ -14,179 +14,99 @@ As an operator, I want research runs to also look at top posts under my watched 
 
 ## Context
 
-Web search and RSS show what people write about. Instagram shows what people actually watch and save. This story adds an Instagram collector to the research run from E02-S02. It uses the `InstagramResearchProvider` interface from E00-S04 and a separate research account, never a brand account, so a block on research cannot stop publishing ([INSTAGRAM-INTEGRATION.md](../../INSTAGRAM-INTEGRATION.md), "Research account").
+**Later — not in the MVP.** The MVP connects accounts with the Instagram API with Instagram Login ([INSTAGRAM-INTEGRATION.md](../../INSTAGRAM-INTEGRATION.md), sections 1 and 2). That API has no hashtag search and no business discovery. Both exist only in the Facebook Login for Business variant on `graph.facebook.com`, which needs each account linked to a Facebook Page in a Meta Business portfolio.
 
-The story is a Should. Without it, Instagram sources stay in the watchlist marked "Not available", runs skip them, and the operator can still add Instagram posts as manual signals.
+Until this story is built, research uses web search, RSS and manual signals. An operator who finds a relevant Instagram post adds it as a manual signal with its URL and numbers (E02-S02, rules 36–40). The source kinds `instagram_hashtag` and `instagram_account` are reserved for this story and cannot be created in the MVP (E02-S01, rule 2).
+
+This file keeps a compact design so the story can be scheduled without new research. The estimate covers the research calls, the collector and the run integration. Connecting accounts through Facebook Login (the `graph_api_fb` adapter's connect flow, INSTAGRAM-INTEGRATION.md section 8) is separate work and is not estimated here.
 
 ## Scope
 
-**In:**
+**In (when scheduled):**
 
-- A stored, encrypted session for the research account and a management command to sign it in.
-- The `instagrapi` implementation of `InstagramResearchProvider`, and the `fake` one.
-- An Instagram collector for `instagram_hashtag` and `instagram_account` sources.
-- Pacing, per-run and per-day call budgets.
-- Clean degradation: not configured, session lost, rate limited, not found.
-- Availability of Instagram sources reported to the panel.
+- Research methods on the `graph_api_fb` adapter: hashtag search with `top_media` and `recent_media`, and business discovery. Matching `fake` provider behaviour.
+- An Instagram collector for `instagram_hashtag` and `instagram_account` sources, run with the account's own connection.
+- A per-account guard for the limit of 30 unique hashtags per rolling 7 days.
+- Re-enabling the two source kinds in the watchlist (E02-S01) and the signal list (E02-S05).
 
 **Out (later):**
 
-- A panel screen to sign the research account in or enter a challenge code.
 - Downloading media, thumbnails or comments.
-- Reading follower counts or profiles of other accounts.
-- Hashtag "recent" feeds, audio trends, Explore.
-- More than one research account or rotation between accounts.
+- One shared account that researches for every brand account.
+- Audio trends, Explore, mentions and tags.
 
 ## Behaviour and rules
 
-### Research connection
+### Connection and availability
 
-1. The research account is global, not per brand account. Its state lives in one `ResearchConnection` row (Data section).
-2. Settings:
+1. Research calls use the run's own account. `research.services.sources.availability(kind)` returns `not_supported` for both Instagram kinds unless the account's `AccountConnection.provider` is `graph_api_fb`, its status is `connected` or `expiring`, and a new `research` capability is true.
+2. `research` is true when the permissions hashtag search and business discovery need were granted: `instagram_basic` plus the Instagram Public Content Access feature for hashtags, and `pages_read_engagement` for business discovery **(confirm when scheduled)**. Both usually need Advanced Access through App Review.
+3. Every call goes through `account_session(account, wait_seconds=30)`, so research never interleaves with publishing or metric collection for that account.
 
-   | Setting | Purpose | Default |
+### Sources when re-enabled
+
+4. Normalization and validation, added back to E02-S01 rule 4:
+
+   | Kind | Normalization | Validation |
    | --- | --- | --- |
-   | `SOCIALHUB_IG_RESEARCH_PROVIDER` | `instagrapi`, `fake` or empty | empty locally means disabled; tests use `fake` |
-   | `SOCIALHUB_IG_RESEARCH_USERNAME` | Optional default username offered by `ig_research_login`; the signed-in username is stored on `ResearchConnection` | none |
-   | `SOCIALHUB_IG_RESEARCH_PROXY_URL` | Fixed proxy for the research account | none |
-   | `SOCIALHUB_IG_RESEARCH_MAX_CALLS_PER_RUN` | Provider calls allowed in one run | 12 |
-   | `SOCIALHUB_IG_RESEARCH_MAX_CALLS_PER_DAY` | Provider calls allowed per UTC day | 60 |
+   | `instagram_hashtag` | Trim; remove leading `#`; lowercase | 1–100 characters; letters (any script), digits and `_` only |
+   | `instagram_account` | Trim; remove leading `@`; take the first path segment of a pasted profile URL; lowercase | 1–30 characters matching `^[a-z0-9._]+$`; must not start or end with `.` |
 
-3. Sign-in is done by an admin on the server with `python manage.py ig_research_login`. The command reads the username and proxy from settings, prompts for the password without echo, calls the provider's login, prompts for a verification code if Instagram asks for one, and on success stores the encrypted session with status `connected`. The password is never stored or logged.
-4. `python manage.py ig_research_login --verify` checks the stored session and prints the status. `--logout` deletes the stored session and sets `disconnected`.
-5. Session data is encrypted with Fernet using `SOCIALHUB_ENCRYPTION_KEY`, the same way as `AccountConnection.session_encrypted`. After every successful provider call the refreshed session is saved back.
+5. Active limits per account: 5 hashtags and 5 accounts. Run order: `web_search`, `rss`, `instagram_hashtag`, `instagram_account`, each by `id`.
 
-### Availability
+### Hashtag sources
 
-6. `research.services.sources.availability(kind)` for the two Instagram kinds returns:
-   - `not_supported` when `SOCIALHUB_IG_RESEARCH_PROVIDER` is empty or there is no `ResearchConnection` row with status `connected`;
-   - available otherwise.
-7. A run does not call the provider for an unavailable source. The source is recorded as `error:not_supported`.
+6. `GET /ig_hashtag_search?user_id={ig_user_id}&q={tag}` returns the hashtag ID. IDs are stable and are cached in Redis (`ig:hashtag_id:{tag}`, 30 days).
+7. `GET /{hashtag_id}/top_media?user_id={ig_user_id}&fields=id,caption,media_type,permalink,timestamp,like_count,comments_count` returns the most popular recent posts; keep at most 9 taken within `lookback_days`. When `top_media` yields fewer than 3 kept posts, `recent_media` (last 24 hours) with the same fields tops the list up to 9.
+8. **30 unique hashtags per account per rolling 7 days.** Meta counts each distinct hashtag searched; repeat searches of the same hashtag inside the window do not count again. The collector keeps a Redis sorted set `ig:hashtags:{account_id}` (tag → time first searched, entries older than 7 days dropped). A tag not in the set when the set already holds 30 is not searched and the source gets `error:hashtag_limit`. Changing a hashtag source's value therefore uses up a new slot.
+9. The hashtag endpoints do not return the author's username **(confirm when scheduled)**, so hashtag signals have no `author`. E02-S04 would use `#tag` as their origin for source diversity.
 
-### Collecting
+### Account sources
 
-8. Instagram sources are visited after web search and RSS sources, hashtags first, then accounts, each by `id`.
-9. One provider call per source:
+10. Business discovery: `GET /{ig_user_id}?fields=business_discovery.username({username}){username,followers_count,media.limit(6){id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count}}`. Keep media taken within `lookback_days`, at most 6. Only professional accounts can be looked up; a personal, private or unknown username raises `NotFound`.
 
-   | Kind | Call | Limit | Kept |
-   | --- | --- | --- | --- |
-   | `instagram_hashtag` | `hashtag_top_media(tag, limit=9)` | 9 media | Media taken within the last 14 days or `lookback_days`, whichever is longer |
-   | `instagram_account` | `user_recent_media(username, limit=6)` | 6 media | Media taken within `lookback_days` |
+### From result to `TrendSignal`
 
-10. Mapping from `PublicMedia` to a `SignalDraft`:
+11. Each kept post becomes a `SignalDraft`; E02-S02 normalizes, deduplicates and saves it:
 
     | Signal field | Value |
     | --- | --- |
     | `kind` | The source's kind |
-    | `url` | `https://www.instagram.com/p/{code}/` (normalized by the fingerprint rules to `https://instagram.com/p/{code}`) |
-    | `title` | First line of the caption, cut to 120 characters; when there is no caption, "@{username} {media_type}" |
+    | `url` | `permalink` (normalized by E02-S02 rule 16 to `https://instagram.com/p/{code}`) |
+    | `title` | First caption line, cut to 120 characters; without a caption, "#{tag} {media type}" or "@{username} {media type}" |
     | `excerpt` | The caption, cut to 1,000 characters |
-    | `author` | `@{username}` |
-    | `published_at` | `taken_at` in UTC |
-    | `metrics` | `{"likes": like_count, "comments": comment_count, "views": view_count}`; a key is left out when the provider returns null |
-    | `raw` | `{"pk", "code", "media_type", "hashtags", "source_value"}`; `hashtags` are the first 30 found in the caption |
+    | `author` | Null for hashtag posts; `@{username}` for account posts |
+    | `published_at` | `timestamp` in UTC |
+    | `metrics` | `{"likes": like_count, "comments": comments_count}`; a key is left out when the API omits it (owners can hide likes) |
+    | `raw` | `{"media_id", "media_type", "media_product_type", "edge"}`, where `edge` is `top_media`, `recent_media` or `business_discovery` |
 
-11. Nothing else is stored: no media files, no thumbnail URLs (they expire), no comment text, no data about people other than the public username of the author.
-12. Deduplication is the E02-S02 rule. Because top posts reappear on later runs with higher counts, an existing signal's `metrics` are replaced with the newer values.
-13. A media item from the brand account itself (author equals the run's account handle) is dropped; own posts are measured in E09, not researched.
-
-### Pacing and budgets
-
-14. One provider call at a time across the whole system, enforced by the Redis lock `ig:research:lock` (lease 120 seconds). The collector waits up to 60 seconds for the lock, then records `error:rate_limited` for the source.
-15. A random pause of 4 to 9 seconds follows every provider call.
-16. Per-run budget: at most `SOCIALHUB_IG_RESEARCH_MAX_CALLS_PER_RUN` calls. Sources beyond the budget are recorded as `error:run_budget` without a call.
-17. Per-day budget: a Redis counter `ig:research:calls:{YYYYMMDD}` (UTC, expires after 48 hours). When it reaches `SOCIALHUB_IG_RESEARCH_MAX_CALLS_PER_DAY`, remaining Instagram sources are recorded as `error:daily_budget` without a call.
+12. A post already stored keeps its row; its `metrics` are replaced with the newer values (E02-S02 rule 18). Posts by the run's own account are dropped; own posts are measured in E09.
 
 ### Errors
 
-18. Provider errors are translated once, in the collector:
+13. Errors from INSTAGRAM-INTEGRATION.md section 7, translated once in the collector:
 
-    | Provider error | Source status | Effect on the rest of the run |
+    | Error | Source status | Rest of the run |
     | --- | --- | --- |
-    | `SessionRequired` | `error:session_required` | Connection becomes `needs_attention`; every remaining Instagram source gets the same status without a call |
-    | `ChallengeRequired` | `error:session_required` | Connection becomes `challenge_required`; same as above |
-    | `RateLimited` | `error:rate_limited` | Every remaining Instagram source gets the same status without a call |
-    | `TransientError` | `error:transient` after one retry 30 seconds later | The next source is still tried |
-    | `NotFound` | `error:not_found` | The next source is still tried |
-    | `NotSupported` | `error:not_supported` | Every remaining Instagram source of that kind gets the same status |
-    | Empty list | `empty` | — |
+    | `TokenInvalid`, `PermissionMissing` | `error:token_invalid`, `error:permission_missing`; `report_connection_error(account, error)` | Remaining Instagram sources get the same status without a call |
+    | `RateLimited`, `AccountBusy` | `error:rate_limited` | Remaining Instagram sources get the same status without a call |
+    | `TransientError` | `error:transient` after one retry 30 seconds later | Next source is tried |
+    | `NotFound` | `error:not_found` | Next source is tried |
+    | Hashtag limit (rule 8) | `error:hashtag_limit` | Next source is tried |
 
-19. `connection.last_error_code` and `last_error_at` are set on session and challenge errors.
-20. Instagram failures never fail the run by themselves. The all-sources-failed rule of E02-S02 still applies across all kinds.
-21. Nothing sensitive is logged: no session data, no proxy URL, no captions. Logs carry the source ID, the call name, the outcome and the duration.
+14. Instagram failures never fail the run by themselves; the all-sources-failed rule of E02-S02 applies across all kinds.
 
 ## Data
 
-Uses `ResearchSource`, `ResearchRun`, `TrendSignal` from [DATA-MODEL.md](../../DATA-MODEL.md). One new table in `apps/instagram`:
-
-### ResearchConnection
-
-At most one row (enforced by a fixed primary key of 1).
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `provider` | enum | `instagrapi`, `fake` |
-| `status` | enum | `disconnected`, `connected`, `challenge_required`, `needs_attention` |
-| `username` | text | |
-| `session_encrypted` | text, null | Fernet-encrypted; never serialized |
-| `last_verified_at` | datetime, null | |
-| `last_error_code` / `last_error_at` | text / datetime, null | |
-
-The proxy URL stays in the environment and is not stored.
-
-Fields this story needs on the `PublicMedia` dataclass defined in `apps/instagram/providers/base.py` (E00-S04): `pk: str`, `code: str`, `media_type: Literal["image", "video", "reel", "carousel"]`, `caption: str`, `username: str`, `taken_at: datetime`, `like_count: int | None`, `comment_count: int | None`, `view_count: int | None`.
-
-One provider error is added to the shared list: `NotFound` — the hashtag or user does not exist, or the account is private.
+No new tables. Uses `ResearchSource`, `ResearchRun`, `TrendSignal` and `AccountConnection` from [DATA-MODEL.md](../../DATA-MODEL.md). When scheduled: add `instagram_hashtag` and `instagram_account` to `ResearchSource.kind` and `TrendSignal.kind`, add `graph_api_fb` to `AccountConnection.provider`, and add `research` to `AccountConnection.capabilities`.
 
 ## API
 
-No new endpoints. Two existing responses change:
-
-- `GET /research/sources/` — `available` and `unavailable_reason` for Instagram kinds now reflect the research connection (rule 6).
-- `GET /system/status/` (E00-S05, admin) should include the research connection so an admin can see it without shell access:
-
-```json
-{
-  "instagram_research": {
-    "provider": "instagrapi",
-    "status": "connected",
-    "username": "research.account",
-    "last_verified_at": "2026-11-22T03:10:00Z",
-    "last_error_code": null,
-    "calls_today": 14,
-    "calls_per_day_limit": 60
-  }
-}
-```
-
-When the provider setting is empty the object is `{"provider": null, "status": "disconnected"}`.
-
-Run results gain these per-source statuses: `error:session_required`, `error:rate_limited`, `error:transient`, `error:not_found`, `error:run_budget`, `error:daily_budget`.
+No new endpoints. When scheduled, `POST /research/sources/` accepts the two kinds again, `available` and `unavailable_reason` reflect rule 1, and run results gain the statuses `error:not_supported`, `error:token_invalid`, `error:permission_missing`, `error:rate_limited`, `error:transient`, `error:not_found` and `error:hashtag_limit`.
 
 ## Background work
 
-| Item | Value |
-| --- | --- |
-| Task | Runs inside `research.tasks.run_research` (E02-S02); no new task |
-| Queue | `default` |
-| Daily verification | The daily "Verify Instagram sessions" Beat task from E00-S04 also calls `verify` on the research connection and updates its status |
-| Idempotency | Same as the run: fingerprints make re-collection safe; metrics are overwritten with newer values |
-| Retries | One retry for `TransientError`; none for anything else |
-| Time cost | About 5 to 12 seconds per source including the pause; ten sources add roughly two minutes to a run |
-| Locks | `ig:research:lock` (rule 14) |
-
-Module layout:
-
-```text
-apps/instagram/models.py                         ResearchConnection
-apps/instagram/providers/instagrapi_research.py  InstagrapiResearchProvider
-apps/instagram/providers/fake.py                 FakeResearchProvider (scenarios)
-apps/instagram/services/research_session.py      load_provider(), save_session(), budgets
-apps/instagram/management/commands/ig_research_login.py
-apps/research/collectors/instagram.py            InstagramCollector
-```
-
-`instagrapi` method names to confirm against the pinned version during the E00-S04 spike: top media for a hashtag (`hashtag_medias_top`), user ID from a username (`user_id_from_username`) and recent media for a user (`user_medias`). The account lookup and the media listing count as one logical call for the budgets; the adapter caches username-to-ID lookups in Redis (`ig:research:uid:{username}`) for 30 days to avoid repeating them.
+Runs inside `research.tasks.run_research` (E02-S02); no new task. One retry for `TransientError`, none for anything else. About 2–4 seconds per source; ten sources add well under a minute to a run.
 
 ## AI
 
@@ -194,25 +114,16 @@ None.
 
 ## Panel
 
-No new screens (FE 0 d). Existing screens change through data only:
-
-- **Research → Sources:** Instagram sources lose the "Not available" tag once the research connection is `connected`. The `last_status` tooltips for the new statuses are already defined in E02-S01.
-- **Research → Signals:** Instagram signals show likes, comments and views in the Metrics column (E02-S05).
-- **Settings → System** (E00-S05): shows the `instagram_research` block.
+No new screens. When scheduled, E02-S01's Sources tab gets back the kinds "Hashtag" and "Instagram account" (tags, form fields and placeholders "#coffee" and "@username", tooltip texts for the statuses in the API section), and E02-S05's Signals tab gets the two kind tags and filter options.
 
 ## Acceptance criteria
 
-1. Given the research provider setting is empty, when a run includes Instagram sources, then no provider call is made, each Instagram source shows `error:not_supported`, and the run completes from the other sources.
-2. Given a connected research session and a hashtag source, when the run visits it, then up to nine signals are stored with `kind = instagram_hashtag`, a canonical post URL, `@username` as author and like, comment and view counts in `metrics`.
-3. Given an account source, when the run visits it, then only media from the last `lookback_days` days are stored, at most six.
-4. Given a post already stored last week, when it appears again with more likes, then no new signal is created and the stored signal's `metrics` show the new counts.
-5. Given the provider raises `SessionRequired` on the second of five Instagram sources, when the run ends, then the first source is `ok`, the other four are `error:session_required`, only two provider calls were made, the connection is `needs_attention`, and the run is still `completed` if another source succeeded.
-6. Given the provider raises `RateLimited`, when the run continues, then no further Instagram calls are made in that run.
-7. Given a username that does not exist, when the run visits it, then the source shows `error:not_found` and the next source is still tried.
-8. Given the daily counter has reached the limit, when a run starts, then Instagram sources are recorded as `error:daily_budget` without calls.
-9. Given two research runs for different accounts at the same time, when both reach their Instagram sources, then provider calls never overlap.
-10. Given `ig_research_login` is run with a correct password and a verification code, when it finishes, then a `ResearchConnection` row exists with status `connected` and an encrypted session, and the password appears in no log or table.
-11. Given the `fake` research provider, when the test suite runs, then every scenario above passes without network access.
+1. Given an account on `graph_api`, when a run includes an Instagram source, then no call is made and the source shows `error:not_supported`.
+2. Given an account on `graph_api_fb` with `research` true and a hashtag source, when the run visits it, then up to nine signals are stored with `kind = instagram_hashtag`, a canonical post URL, no author and like and comment counts.
+3. Given an account source naming a professional account, when the run visits it, then at most six signals from the last `lookback_days` days are stored with `@username` as author.
+4. Given 30 different hashtags searched for the account in the last 7 days, when a run reaches a 31st hashtag, then no search is made and the source shows `error:hashtag_limit`; a hashtag already in the set is still searched.
+5. Given a post stored last week, when it appears again with more likes, then no new signal is created and the stored `metrics` show the new counts.
+6. Given `TokenInvalid` on the first of three Instagram sources, when the run ends, then all three show `error:token_invalid`, one call was made, and the connection is `needs_attention`.
 
 ## Subtasks
 
@@ -220,15 +131,18 @@ No new screens (FE 0 d). Existing screens change through data only:
 
 | ID | Task | Detail | Est. |
 | --- | --- | --- | --- |
-| E02-S03-BE1 | Research connection and login command | `ResearchConnection` model and migration; `services/research_session.py` (encrypt, decrypt, save back, load provider from settings); `ig_research_login` command with password prompt, challenge prompt, `--verify`, `--logout`; hook into the daily verification task. Tests with the fake provider. | 0.5 d |
-| E02-S03-BE2 | Provider adapters | `InstagrapiResearchProvider` implementing `hashtag_top_media` and `user_recent_media`, mapping library objects to `PublicMedia`, translating library exceptions to the shared errors including `NotFound`; proxy support; username-to-ID cache. `FakeResearchProvider` with scenarios `ok`, `empty`, `session_required`, `challenge`, `rate_limited`, `transient_then_ok`, `not_found`. | 0.5 d |
-| E02-S03-BE3 | Instagram collector | `collectors/instagram.py`: per-kind call, age filters, `PublicMedia` to `SignalDraft` mapping, own-account filter, Redis lock, random pause (injectable for tests), per-run and per-day budgets. Unit tests for mapping and limits. | 0.5 d |
-| E02-S03-BE4 | Run integration | Register the collector in `services/runs.py`; availability for Instagram kinds; stop rules for session, challenge, rate-limit and not-supported errors; metrics overwrite on duplicate; `instagram_research` block for `GET /system/status/`. | 0.25 d |
-| E02-S03-BE5 | Tests and runbook note | Run-level tests for acceptance criteria 1 and 4 to 9 with the fake provider; a short "Research account" section in the operations runbook (E11-S02) covering login, verification and what the statuses mean; `openapi.yaml` update for the status block. | 0.25 d |
+| E02-S03-BE1 | Research calls on `graph_api_fb` | `hashtag_search`, `hashtag_media(hashtag_id, edge)` and `business_discovery(username)` in the adapter; error translation; hashtag ID cache; `fake` behaviour for each, including `NotFound` and the hashtag limit. | — |
+| E02-S03-BE2 | Hashtag limit guard | `ig:hashtags:{account_id}` sorted set with 7-day pruning and the 30-tag check; unit tests at the boundary. | — |
+| E02-S03-BE3 | Instagram collector | `apps/research/collectors/instagram.py`: per-kind calls, age filter, `top_media` top-up from `recent_media`, mapping of rule 11, own-account filter, `account_session`. | — |
+| E02-S03-BE4 | Run and source integration | Kinds and limits back in `services/sources.py`; availability and the `research` capability; run order; stop rules of rule 13; `openapi.yaml`. Run-level tests for acceptance criteria 1–6 with the fake provider. | — |
 
 ### Frontend
 
-None.
+| ID | Task | Detail | Est. |
+| --- | --- | --- | --- |
+| E02-S03-FE1 | Re-enable Instagram kinds in the panel | Kind options, value placeholders and client validation in `SourceFormModal.tsx`; kind tags and status tooltips in `SourcesTab.tsx` and `SignalsTab.tsx`. | — |
+
+The 2 backend days are not counted in the MVP total in [ROADMAP.md](../../ROADMAP.md). FE1 is small and is estimated together with the backend when the story is scheduled.
 
 ### Test
 
@@ -236,16 +150,11 @@ None. Tests are part of each subtask.
 
 ## Test notes
 
-- Unit: caption first-line title, empty caption title, hashtag extraction cap, missing counts leave keys out, own-account media dropped, age windows for both kinds.
-- Budgets: counter increments per logical call, resets by date key, per-run cap stops calls; the pause function is injected so tests do not sleep.
-- Lock: a held lock makes the second collector wait and then record `error:rate_limited` after the wait limit.
-- Session: refreshed session is saved after a successful call; nothing is saved after a failed one; decrypt failure sets `needs_attention`.
-- Command: tested through Django's `call_command` with patched prompts.
-- No test calls Instagram. A manual check on the real research account is part of the E00-S04 spike checklist.
+- Unit: caption title and empty-caption title; missing like counts leave the key out; own-account posts dropped; age windows for both kinds; hashtag limit boundary and pruning.
+- Recorded Graph API responses for hashtag search, `top_media`, `recent_media` and business discovery, including the error bodies for an unknown hashtag and a personal account.
+- No test calls Instagram. A manual check on a real account connected through Facebook Login is part of the setup for the `graph_api_fb` adapter.
 
 ## Later
 
-- A panel form under Settings → System to sign the research account in and answer challenges, reusing the connection components from E00-S04.
-- More than one research account with round-robin use and per-account budgets; `ResearchConnection` loses its single-row rule.
-- A third-party scraping API as another `InstagramResearchProvider` implementation, chosen by `SOCIALHUB_IG_RESEARCH_PROVIDER`.
-- Audio and Explore trends as new source kinds.
+- One shared account connected through Facebook Login that researches for every brand account, so brand accounts can stay on Instagram Login. The 30-hashtag limit would then be shared by every brand account's watchlist.
+- Mentions and tagged posts as further source kinds behind the same collector.

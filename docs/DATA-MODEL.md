@@ -7,7 +7,7 @@ Conventions:
 - Primary keys are `BigAutoField` integers, except `JobRun`, which uses a UUID so job links are not guessable.
 - Every table has `created_at` and `updated_at` (UTC). They are not repeated below.
 - Timestamps are stored in UTC. Each account has an IANA timezone used for display and for slot times.
-- Enum values are lowercase strings stored as text with `choices`.
+- Enum values are lowercase strings stored as text with `choices`. The exceptions are values copied from Instagram's API (`AccountConnection.account_type`, `Publication.container_status`), which keep Instagram's uppercase spelling.
 - "JSON" means a PostgreSQL `jsonb` column whose shape is validated by a serializer or Pydantic model before saving.
 - FK = foreign key. "null" means the column is nullable.
 
@@ -84,30 +84,20 @@ One per account.
 | Field | Type | Notes |
 | --- | --- | --- |
 | `account` | 1:1 FK | |
-| `provider` | enum | `instagrapi`, `graph_api`, `manual`, `fake` |
-| `status` | enum | `disconnected`, `connected`, `challenge_required`, `needs_attention` |
-| `username` | text | |
-| `session_encrypted` | text, null | Fernet-encrypted provider session; never serialized |
-| `proxy_url_encrypted` | text, null | Never serialized; the API exposes only `has_proxy` |
-| `capabilities` | JSON | `{"publish_feed", "publish_reel", "publish_story", "insights", "research"}` booleans, filled by verification |
-| `challenge` | JSON, null | `{"method", "hint", "expires_at", "attempts"}` while a challenge is pending; `method` is `sms`, `email`, `totp` or `unknown`; `hint` is the masked destination |
+| `provider` | enum | `graph_api`, `manual`, `fake`. Changed only while `disconnected` |
+| `status` | enum | `disconnected`, `connected`, `expiring`, `needs_attention` |
+| `ig_user_id` | text, null | Instagram professional account ID (`user_id` from `/me`); used in every Graph API path |
+| `username` | text | Instagram username read at connect time; must equal the account's `handle` |
+| `account_type` | enum, null | `BUSINESS`, `MEDIA_CREATOR` |
+| `access_token_encrypted` | text, null | Fernet-encrypted long-lived token; never serialized; the API exposes only `has_token` |
+| `token_expires_at` | datetime, null | A long-lived token lasts 60 days from its exchange or last refresh |
+| `token_refreshed_at` | datetime, null | When the token was obtained or last refreshed; read by `instagram.refresh_tokens` |
+| `scopes` | JSON list of text | Permissions granted on Instagram |
+| `capabilities` | JSON | `{"publish_feed", "publish_reel", "publish_story", "insights"}` booleans, filled by `verify` |
 | `last_verified_at` | datetime, null | |
-| `last_error_code` / `last_error_at` | text / datetime, null | |
+| `last_error_code` / `last_error_at` | text / datetime, null | A connection code from [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGRATION.md) section 7 |
 
-`capabilities.research` is always false for brand accounts. Public-signal research uses the separate research account below.
-
-### ResearchConnection (app `instagram`)
-
-A single row holding the session of the dedicated research account used by E02-S03. Signed in with the management command `ig_research_login`; there is no panel screen.
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `provider` | enum | `instagrapi`, `fake` |
-| `status` | enum | `disconnected`, `connected`, `challenge_required`, `needs_attention` |
-| `username` | text | |
-| `session_encrypted` | text, null | Fernet-encrypted; never serialized |
-| `last_verified_at` | datetime, null | |
-| `last_error_code` / `last_error_at` | text / datetime, null | |
+Statuses and what each allows are in [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGRATION.md) section 4, capabilities in section 10. A `manual` connection has no token and every capability false. Disconnecting deletes the token, sets every capability false and turns the account's `publishing_enabled` off.
 
 ## 3. core and ai
 
@@ -137,7 +127,7 @@ Job kinds by owning story:
 
 | Area | Kinds |
 | --- | --- |
-| Foundation (E00) | `instagram.login`, `instagram.challenge`, `instagram.verify`, `system.ai_test` |
+| Foundation (E00) | `instagram.verify`, `instagram.refresh_token`, `system.ai_test` |
 | Research and selection (E02, E03) | `research.run`, `feeds.sync`, `selection.rank` |
 | Briefs and scripts (E04, E05) | `brief.generate`, `brief.generate_batch`, `script.generate` |
 | Production (E06) | `production.start`, `production.render`, `production.generate_image`, `copy.generate` |
@@ -252,11 +242,11 @@ The link to content is `ContentItem.slot`. Open slots become `skipped` when the 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `account` | FK | |
-| `kind` | enum | `web_search`, `rss`, `instagram_hashtag`, `instagram_account`. (`manual` exists only on `TrendSignal.kind`; it cannot be a source.) |
-| `value` | text | Search query, feed URL, hashtag without `#`, or username without `@` |
+| `kind` | enum | `web_search`, `rss`. `instagram_hashtag` and `instagram_account` are reserved for E02-S03 (Later, Facebook Login adapter) and not accepted in the MVP. (`manual` exists only on `TrendSignal.kind`; it cannot be a source.) |
+| `value` | text | Search query or feed URL |
 | `label` | text | |
 | `active` | bool | |
-| `last_run_at` / `last_status` | datetime / text, null | `ok`, `empty`, or `error:<code>` where code is one of `timeout`, `http_<status>`, `invalid_feed`, `blocked_url`, `provider_error`, `refused`, `provider_not_configured`, `not_supported`, `session_required`, `rate_limited`, `transient`, `not_found`, `run_budget`, `daily_budget` |
+| `last_run_at` / `last_status` | datetime / text, null | `ok`, `empty`, or `error:<code>` where code is one of `timeout`, `http_<status>`, `invalid_feed`, `blocked_url`, `provider_error`, `refused`, `provider_not_configured`, `not_supported` |
 
 ### ResearchRun
 
@@ -281,7 +271,7 @@ Unique on (`account`, `fingerprint`).
 | `account` | FK | |
 | `run` | FK ResearchRun, null | Null for manual signals added outside a run |
 | `source` | FK ResearchSource, null | |
-| `kind` | enum | Same values as `ResearchSource.kind` |
+| `kind` | enum | `web_search`, `rss`, `manual`. The Instagram kinds are reserved, as on `ResearchSource.kind` |
 | `url` | text | The original source link |
 | `title` | text | |
 | `excerpt` | text | At most 1,000 characters |
@@ -641,7 +631,7 @@ Partial unique on (`content_item`) where `status = 'open'`: opening a second tas
 
 ### Publication
 
-One row per item. A `cancelled` row left by `withdraw` is reused when the item is approved again: version, time, slot, delivery and fingerprint are replaced and `attempt_count` is reset to 0. Indexes on (`status`, `scheduled_at`), (`account`, `status`, `scheduled_at`), (`account`, `published_at`), and (`account`, `next_metrics_at`) where not null.
+One row per item. A `cancelled` row left by `withdraw` is reused when the item is approved again: version, time, slot, delivery and fingerprint are replaced, the container fields are cleared and `attempt_count` is reset to 0. Indexes on (`status`, `scheduled_at`), (`account`, `status`, `scheduled_at`), (`account`, `published_at`), and (`account`, `next_metrics_at`) where not null.
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -653,11 +643,14 @@ One row per item. A `cancelled` row left by `withdraw` is reused when the item i
 | `scheduled_at` | datetime | |
 | `status` | enum | `scheduled`, `publishing`, `verifying`, `published`, `failed`, `cancelled` |
 | `delivery` | enum | `provider` (default; sent by the worker) or `manual` (posted by hand). Re-checked at send time: a capability that turned false switches it to `manual` |
-| `blocked_reason` | enum, null | `publishing_paused`, `session_problem`, `daily_limit` |
+| `blocked_reason` | enum, null | `publishing_paused`, `connection_problem`, `daily_limit` |
 | `attempt_count` | int | Sends that used the retry budget; `PublishAttempt.number` counts every row |
 | `next_attempt_at` | datetime, null | Set while waiting to retry |
 | `caption_fingerprint` | text | First 32 hex characters of SHA-256 over the NFC-normalised, whitespace-collapsed, casefolded first 100 characters of the full caption. Empty for stories and for captions shorter than 10 characters |
-| `remote_media_pk` / `remote_media_code` | text, null | Provider identifiers |
+| `remote_container_id` | text, null | Container ID from `POST /{ig_user_id}/media`. The idempotency key of a send: stored in its own transaction before waiting or publishing |
+| `container_status` | enum, null | `IN_PROGRESS`, `FINISHED`, `ERROR`, `EXPIRED`, `PUBLISHED`; the last status read |
+| `container_created_at` | datetime, null | A container expires 24 hours after creation, so containers are created at send time |
+| `remote_media_id` / `remote_shortcode` | text, null | Instagram media ID and shortcode of the live post |
 | `permalink` | text, null | |
 | `published_at` | datetime, null | |
 | `published_via` | enum, null | How it actually went out: `provider` or `manual` |
@@ -675,8 +668,8 @@ One row per item. A `cancelled` row left by `withdraw` is reused when the item i
 | `started_at` | datetime | |
 | `finished_at` | datetime, null | Null while running |
 | `outcome` | enum, null | `success`, `verified_live`, `retryable_error`, `fatal_error`, `ambiguous`; null while running |
-| `error_code` / `error_message` | text, null | Codes include `session_required`, `challenge_required`, `rate_limited`, `asset_corrupt`, `caption_too_long`, `timeout`, `lease_expired` |
-| `verification` | JSON, null | `{"pre_story_pks": [...], "checks": [{"at", "method", "window_start", "listed", "candidates", "result", "remote_media_pk", "remote_media_code", "taken_at"}], "final_check_pending": bool}`; `method` is `caption_fingerprint`, `active_stories` or `time_window`; the remote fields appear only on a match |
+| `error_code` / `error_message` | text, null | Codes include `token_invalid`, `permission_missing`, `rate_limited`, `asset_corrupt`, `caption_too_long`, `timeout`, `lease_expired` |
+| `verification` | JSON, null | `{"pre_story_ids": [...], "checks": [{"at", "method", "container_status", "window_start", "listed", "candidates", "result", "remote_media_id", "remote_shortcode", "timestamp"}], "final_check_pending": bool}`; `method` is `container_status`, `media_list` or `active_stories`; `container_status` appears only for that method, `window_start`, `listed` and `candidates` only for the two list methods, and the remote fields only on a match |
 
 ## 10. analytics (steps 09–10)
 

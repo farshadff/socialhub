@@ -12,9 +12,9 @@ The MVP is one Django application with background workers. It keeps the scaffold
 | Rendering | Headless Chromium (Playwright for Python) and FFmpeg in the `render-worker` image | HTML templates to PNG; PNG frames and clips to MP4. `ffmpeg`/`ffprobe` is also in the backend image for upload probing (E06-S01) and the format check (E07-S02). |
 | Panel | React 19, TypeScript, Umi Max 4, Ant Design 6, Pro Components | Already in `frontend/`. English, left-to-right. |
 | AI | `anthropic` and `openai` Python SDKs behind one gateway module | See [AI-INTEGRATION.md](AI-INTEGRATION.md). |
-| Instagram | `instagrapi` behind a provider interface | See [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGRATION.md). |
-| Media storage | Django storage API; local volume in development, S3-compatible bucket when hosted | Chosen by one setting. |
-| Secrets | Environment variables; Instagram sessions encrypted in the database with a key from the environment | No secrets in the repository. |
+| Instagram | Meta's official Instagram API with Instagram Login (Graph API), called with `httpx` behind a provider interface | No third-party Instagram SDK. See [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGRATION.md). |
+| Media storage | Django storage API; local volume in development, S3-compatible bucket when hosted | Chosen by one setting. The hosted bucket must be reachable from the internet (section 6). |
+| Secrets | Environment variables; Instagram access tokens encrypted in the database with a key from the environment | No secrets in the repository. |
 
 ## 2. Backend apps
 
@@ -28,8 +28,8 @@ backend/apps/
                 http.safe_fetch (outbound HTTP with timeout, size cap, blocked private and listed domains)
   accounts/     InstagramAccount, BrandProfile, AccountConnection, auth endpoints
   ai/           AI gateway: provider clients, prompt registry, AIRun log
-  instagram/    provider interface and adapters (instagrapi, graph_api stub, manual, fake), session and
-                lock helper, ResearchConnection
+  instagram/    provider interface and adapters (graph_api, manual, fake), OAuth connect and token
+                refresh, account session and lock helper, signed media URLs
   planning/     WeeklyPlan, PlanGoal, SlotTemplate, PlanSlot, signals.py      step 01
   research/     ResearchSource, ResearchRun, TrendSignal, TrendTopic          step 02
   selection/    FeedSource, FeedItem, feed readers/, Candidate, RepurposeTask step 03
@@ -94,7 +94,7 @@ scheduled      ─► published                   marked published by hand (E08-
 scheduled      ─► failed                      send-time defensive check finds the version changed (`version_changed`);
                                               opens a publish_failed review task (E08-S03 gate 5)
 publishing     ─► published                   sent, or found live by verification (E08-S03, E08-S04)
-publishing     ─► scheduled                   claim released, session or rate-limit interruption, waiting to retry (E08-S03, E08-S04)
+publishing     ─► scheduled                   claim released, connection or rate-limit interruption, waiting to retry (E08-S03, E08-S04)
 publishing     ─► failed                      retries exhausted or a fatal error; opens a review task (E08-S04)
 failed         ─► scheduled                   retry (E08-S04)
 failed         ─► published                   marked published by hand (E08-S04)
@@ -177,6 +177,7 @@ Periodic work is driven by Celery Beat:
 | Every 15 minutes | `analytics.evaluate_due` | Evaluates posts whose evaluation checkpoint has a captured snapshot | E10-S01 |
 | Hourly at minute 0 | `feeds.sync_active_sources` | Syncs active feed sources | E03-S01 |
 | Daily 02:00 UTC | `planning.close_finished_plans` | Closes plans whose week ended two days ago | E01-S03 |
+| Daily 02:15 UTC | `instagram.refresh_tokens` | Refreshes connected `graph_api` tokens whose `token_refreshed_at` is older than `SOCIALHUB_IG_TOKEN_REFRESH_AFTER_DAYS` (default 7) | E00-S04 |
 | Daily 02:30 UTC | `ai.prune_payloads` | Nulls `AIRun.payload` older than 30 days | E00-S05 |
 | Daily 03:00 UTC | `instagram.verify_all` | Enqueues `instagram.verify` with a random delay of up to 30 min for connected, non-manual, active accounts | E00-S04 |
 | Daily 03:00 UTC | `selection.expire_repurpose_tasks` | Dismisses open repurpose tasks past `expires_at` | E10-S04 |
@@ -185,7 +186,7 @@ Periodic work is driven by Celery Beat:
 
 The `plan_closed` signal starts `analytics.generate_weekly_report` (E10-S02).
 
-Retries: transient provider errors retry inside the task with exponential backoff, at most three times. After that the job fails with a clear `error_code`, and the item shows the failure with a retry button. Stories may be stricter: `instagram.login` and `instagram.challenge` never retry; `instagram.verify` waits 30 s, 2 min, 10 min; feed sync retries twice (10 s, 60 s); AI job tasks rely only on the gateway's own retries. Publishing has its own rule, described in E08-S04.
+Retries: transient provider errors retry inside the task with exponential backoff, at most three times. After that the job fails with a clear `error_code`, and the item shows the failure with a retry button. Stories may be stricter: `instagram.verify` waits 30 s, 2 min, 10 min; a failed scheduled token refresh is tried again by the next day's `instagram.refresh_tokens`; feed sync retries twice (10 s, 60 s); AI job tasks rely only on the gateway's own retries. Publishing has its own rule, described in E08-S04.
 
 ### Time
 
@@ -201,16 +202,19 @@ Every external system sits behind an interface with a fake implementation for te
 | --- | --- | --- |
 | `TextModel` (reasoning, writing, vision, web search) | `anthropic`, `fake` | `SOCIALHUB_AI_TEXT_PROVIDER` |
 | `ImageModel` (image generation) | `openai`, `fake` | `SOCIALHUB_AI_IMAGE_PROVIDER` |
-| `InstagramProvider` (publish, verify, insights, account stats) | `instagrapi`, `graph_api` (interface only), `manual`, `fake` | Per account: `AccountConnection.provider` (initial value `SOCIALHUB_IG_DEFAULT_PROVIDER`, allowed set `SOCIALHUB_IG_ALLOWED_PROVIDERS`) |
-| `InstagramResearchProvider` (public hashtags and accounts) | `instagrapi`, `fake` | `SOCIALHUB_IG_RESEARCH_PROVIDER` |
+| `InstagramProvider` (connect, publish, verify, insights, account stats) | `graph_api` (default for real accounts), `manual`, `fake` | Per account: `AccountConnection.provider` (initial value `SOCIALHUB_IG_DEFAULT_PROVIDER`, allowed set `SOCIALHUB_IG_ALLOWED_PROVIDERS`) |
 | `FeedReader` | `rss` (`feedparser`), `json_api` | Per `FeedSource.kind`; both fetch through `core.http.safe_fetch` |
 | Media storage | local filesystem, S3-compatible | `SOCIALHUB_MEDIA_BACKEND` |
 
 The existing settings file refuses to start unless every provider is `fixture` and publishing is disabled. E00-S04 and E00-S05 replace that guard with the settings above and remove `SOCIALHUB_PUBLISHER_PROVIDER`, `SOCIALHUB_PUBLISHING_ENABLED`, `SOCIALHUB_SOURCE_PROVIDER`, `SOCIALHUB_MODEL_PROVIDER` and `apps/core/providers.py`. Local development keeps the fakes as defaults. In production settings (`DJANGO_DEBUG=false`), startup refuses any `fake` provider and `SOCIALHUB_TESTING_HOOKS=true` (E11-S02).
 
+Network: the backend and workers must reach `graph.instagram.com`, `api.instagram.com` and `www.instagram.com`. Host them where these are reachable, or route all Instagram traffic through the optional `SOCIALHUB_IG_HTTP_PROXY`. AI providers use the separate `HTTPS_PROXY` (E11-S02).
+
 ### Product settings
 
-AI settings are in [AI-INTEGRATION.md](AI-INTEGRATION.md) section 1, Instagram settings in [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGRATION.md) section 3, and media settings in section 6 below. Deployment variables (`SOCIALHUB_RELEASE`, `SOCIALHUB_DOMAIN`, `SENTRY_DSN`, `LOG_LEVEL`, `HTTPS_PROXY`, `NO_PROXY`, `BACKUP_*`) are listed in E11-S02.
+AI settings are in [AI-INTEGRATION.md](AI-INTEGRATION.md) section 1, Instagram settings in [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGRATION.md) section 9, and media settings in section 6 below. Deployment variables (`SOCIALHUB_RELEASE`, `SOCIALHUB_DOMAIN`, `SENTRY_DSN`, `LOG_LEVEL`, `HTTPS_PROXY`, `NO_PROXY`, `BACKUP_*`) are listed in E11-S02.
+
+In brief, the Instagram settings cover the Meta app (`SOCIALHUB_META_APP_ID`, `SOCIALHUB_META_APP_SECRET`, `SOCIALHUB_META_REDIRECT_URI`), the pinned `SOCIALHUB_IG_API_VERSION`, the optional egress proxy `SOCIALHUB_IG_HTTP_PROXY`, `SOCIALHUB_IG_TOKEN_REFRESH_AFTER_DAYS`, `SOCIALHUB_IG_MEDIA_URL_TTL_SECONDS`, the token key `SOCIALHUB_ENCRYPTION_KEY`, and the provider choices `SOCIALHUB_IG_DEFAULT_PROVIDER`, `SOCIALHUB_IG_ALLOWED_PROVIDERS` and `SOCIALHUB_IG_CAPABILITY_OVERRIDES`.
 
 Content and fetching:
 
@@ -283,15 +287,16 @@ Operations:
 - `SOCIALHUB_MEDIA_BACKEND` is `local` or `s3`. Hosted environments must use `s3`; startup refuses `local` when `DEBUG` is false. A `minio` service under the Compose `s3` profile gives a local S3-compatible bucket.
 - Media settings: `SOCIALHUB_S3_BUCKET`, `SOCIALHUB_S3_ENDPOINT_URL`, `SOCIALHUB_S3_REGION`, `SOCIALHUB_S3_ACCESS_KEY_ID`, `SOCIALHUB_S3_SECRET_ACCESS_KEY`, `SOCIALHUB_S3_ADDRESSING_STYLE`, `SOCIALHUB_S3_PUBLIC_BASE_URL`, `SOCIALHUB_MEDIA_URL_TTL_SECONDS` (default 21600), `SOCIALHUB_MEDIA_BASE_URL`, `SOCIALHUB_WORK_DIR` (worker temp files). Dependencies: `django-storages[s3]`, `filetype`; `moto` in tests.
 - The API returns short-lived signed URLs when the bucket is private, and plain media URLs locally.
-- The unofficial Instagram provider uploads from a local file path, so workers download the asset to a temporary directory first. The official provider needs a public URL, which the same storage layer can sign.
+- Instagram publishing passes Meta a URL, not a file: Meta's servers download the final asset (and the reel cover) from storage. `apps.instagram.media.public_url(asset)` signs an HTTPS URL valid for `SOCIALHUB_IG_MEDIA_URL_TTL_SECONDS` (default 7,200). The hosted bucket must therefore be publicly reachable over HTTPS. Local development uses the `fake` provider; testing real publishing locally needs a cloud bucket.
 
 ## 7. Security basics
 
 - Session cookies are HTTP-only, `SameSite=Lax`, and `Secure` unless `DJANGO_DEBUG` is true. Sessions last 14 days of inactivity (`SESSION_SAVE_EVERY_REQUEST`). Mutating requests need the CSRF token. No public registration; users are created by an admin.
 - Failed sign-ins are throttled at 5 per username and IP per 15 minutes.
 - Admin-only actions: Instagram connection, account creation, archive and handle changes, publishing switch, autopilot switches, system settings.
-- Instagram sessions and proxy URLs are encrypted with Fernet using `SOCIALHUB_ENCRYPTION_KEY`. The setting accepts a comma-separated list for rotation (the first key encrypts, all keys decrypt); startup fails without a valid key. Secrets are never returned by the API or written to logs.
-- Redis also backs Django's cache (`REDIS_URL`): sign-in throttle counters, the encrypted Instagram credential hand-off `ig:login:{job_id}` (120 s), and per-account Instagram locks `ig:lock:{account_id}`.
+- Instagram access tokens are encrypted with Fernet using `SOCIALHUB_ENCRYPTION_KEY`. The setting accepts a comma-separated list for rotation (the first key encrypts, all keys decrypt); startup fails without a valid key. The Meta app secret (`SOCIALHUB_META_APP_SECRET`) stays in the environment and is used only server-side, for the token exchange. Tokens and the app secret are never returned by the API or written to logs; the API exposes only `has_token`.
+- The OAuth callback accepts only a `state` issued in the last 10 minutes, and connects only when the Instagram username equals the account's handle.
+- Redis also backs Django's cache (`REDIS_URL`): sign-in throttle counters, OAuth `state` values (10 minutes), and per-account Instagram locks `ig:lock:{account_id}`.
 - AI payload logs can contain unpublished content. They are visible to admins only and pruned after 30 days.
 - Uploads are validated by MIME type, extension and size before they are stored.
 
@@ -310,6 +315,6 @@ Operations:
 | Many teams | Add `Workspace` and a foreign key on `InstagramAccount`; filter by membership | Every other table already hangs off the account |
 | More platforms | Add a platform field on the account model and a provider per platform | Pipeline, checks, analytics shape |
 | More formats | Add an entry to the format registry, a render template and provider method | Statuses, checks framework |
-| Official Instagram API | Implement the `graph_api` adapter and switch the account's provider | Publishing, verification and analytics services |
+| Instagram trend research | Add the `graph_api_fb` adapter (Facebook Login) for hashtag search and business discovery, then E02-S03 | Provider interface, research pipeline |
 | Smarter selection and evaluation | Replace scoring functions; add embeddings | Candidate and evaluation tables |
 | Split into services | The apps already talk through service functions and job IDs | API contract |

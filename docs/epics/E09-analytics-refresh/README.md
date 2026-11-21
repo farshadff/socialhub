@@ -9,7 +9,7 @@ Workflow step 09: "Pull reach, saves, and shares. Track follower change by accou
 **In the MVP**
 
 - Metric snapshots per publication at fixed checkpoints: reels and feed posts at 1 h, 6 h, 24 h, 72 h and 7 d; stories at 1 h, 6 h and 23 h.
-- A collector that runs every 10 minutes, paced per account, tolerant of provider errors.
+- A collector that runs every 10 minutes, reads insights through the official Graph API (`GET /{media_id}/insights`), takes turns with publishing on each account's lock, and tolerates provider errors.
 - Clear records of what could not be measured: metrics the provider did not return, checkpoints that were missed.
 - A daily follower snapshot per account with the change since the previous one.
 - Manual refresh, manual metric entry and manual follower entry.
@@ -17,7 +17,7 @@ Workflow step 09: "Pull reach, saves, and shares. Track follower change by accou
 
 **Left for later**
 
-- Audience demographics, profile visits, link clicks, per-story navigation analysis.
+- Showing or evaluating the metrics kept in `extra` (profile visits, follows, watch time, story navigation); audience demographics; link clicks.
 - Hourly follower tracking, follower attribution to posts.
 - Exports and scheduled email reports.
 - Competitor benchmarks.
@@ -35,7 +35,7 @@ Workflow step 09: "Pull reach, saves, and shares. Track follower change by accou
 ## Flow
 
 1. When a publication becomes `published`, E08 sets `next_metrics_checkpoint = "1h"` and `next_metrics_at = published_at + 1 hour`.
-2. Every 10 minutes the collector picks the publications whose `next_metrics_at` has passed, groups them by account, and for each one asks the provider for insights once (S01).
+2. Every 10 minutes the collector picks the publications whose `next_metrics_at` has passed, groups them by account, and for each one asks the provider for insights once, using the per-format metric map (S01).
 3. The result is stored as a `MetricSnapshot` under the checkpoint that is due, with the real age in minutes and the list of metrics the provider could not return. The pointer moves to the next checkpoint. After the last one it is cleared.
 4. Shortly after midnight in each account's timezone, the follower task stores an `AccountSnapshot` with the change since the previous one (S02).
 5. The operator opens Analytics to see the latest numbers per post, the curve of one post over its checkpoints, and the follower series; presses "Refresh now" for fresh numbers between checkpoints; or types numbers in when the provider cannot deliver them (S03).
@@ -56,6 +56,7 @@ published ─► 1h ─► 6h ─► 23h                   (story)
 | Endpoints | `POST /analytics/refresh/`, `GET /analytics/posts/`, `GET /analytics/posts/{publication_id}/`, `POST /analytics/posts/{publication_id}/snapshots/`, `GET /analytics/account/`, `POST /analytics/account/snapshots/`, and one addition: `GET /analytics/sync-status/` |
 | Panel | `/analytics/posts`, `/analytics/posts/:publicationId`, `/analytics/account`; the Performance tab of `/content/:id` |
 | Background tasks | `analytics.collect_due_metrics` (every 10 minutes), `analytics.collect_account_metrics`, `analytics.dispatch_follower_snapshots` (every 10 minutes), `analytics.snapshot_followers`, `analytics.refresh` |
+| Provider code | `media_insights` and `account_stats` in the `graph_api` adapter; the metric map `apps/instagram/metrics.py` |
 | Services | `analytics.services.checkpoints`, `analytics.services.snapshots`, `analytics.services.followers` (`follower_change(account, from_date, to_date)`), `analytics.services.sync_status(account)` |
 | AI tasks | None |
 | Job kinds | `analytics.refresh` |
@@ -64,11 +65,11 @@ published ─► 1h ─► 6h ─► 23h                   (story)
 
 | Depends on | Why |
 | --- | --- |
-| E00-S04 | `media_insights`, `account_stats`, connection status and the `insights` capability, the per-account Instagram lock, fake provider |
+| E00-S04 | Provider interface (`media_insights`, `account_stats`), error types, connection status and the `insights` capability (from `instagram_business_manage_insights`), `account_session` and the per-account lock, fake provider |
 | E00-S06 | `JobRun`, `JobButton`, `JobProgress` |
 | E03-S04 | Item workspace shell that hosts the Performance tab |
 | E04-S01 | Format registry |
-| E08-S03, E08-S04 | Published publications with `remote_media_pk`, `published_at` and the first metric pointer |
+| E08-S03, E08-S04 | Published publications with `remote_media_id`, `published_at` and the first metric pointer |
 
 | Needed by | Why |
 | --- | --- |
@@ -87,6 +88,6 @@ published ─► 1h ─► 6h ─► 23h                   (story)
 ## Later
 
 - More checkpoints (for example `14d`) are one entry in the checkpoint table.
-- Additional metrics are columns on `MetricSnapshot` or keys in `extra`; the provider mapping is one function.
-- The official Graph API returns the same metrics under different names; only the provider adapter changes.
+- Additional metrics are columns on `MetricSnapshot` or keys in `extra`; the provider mapping is one entry in `apps/instagram/metrics.py`.
+- A Graph API version that renames a metric adds one entry to the metric map, keyed by version; nothing else changes.
 - A time-series store is unnecessary at MVP volume (a few rows per post); the tables can be partitioned by date if volume grows.

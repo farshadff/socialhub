@@ -255,7 +255,7 @@ A `ProTable` in a `ProCard`.
 | Column | Content |
 | --- | --- |
 | Signal | Title in `ContentText` as an external link; excerpt below, two lines |
-| Kind | Tag: "Web search", "RSS feed", "Hashtag", "Instagram account", "Manual" |
+| Kind | Tag: "Web search", "RSS feed", "Manual" |
 | Source | Source label, or "—" |
 | Author | Text |
 | Published | `DateTime`, or "No date" |
@@ -370,7 +370,7 @@ None. Tests are part of each subtask.
 - API: transition matrix as a table-driven test (every from/to pair); content edit on `new` sets `shortlisted`, on `shortlisted` leaves it, on `dismissed` leaves it; `signal_ids` change triggers a rescore and an unchanged list does not; read-only fields ignored.
 - Panel: mock the API from the examples in E02-S02, E02-S04 and this story. Check default filters follow the header plan; Undo sends the reverse `PATCH`; the drawer reloads after attach; the Runs tab polls only while a run is active.
 - Accessibility: every row action is reachable by keyboard; the evidence tooltip content is also in the drawer, so nothing is hover-only; copy buttons have accessible names.
-- Fixtures: one account with a completed run (six topics across all four statuses, 23 signals of four kinds), one failed run and one run with a failed source.
+- Fixtures: one account with a completed run (six topics across all four statuses, 23 signals of all three kinds, including a manual signal that links an Instagram reel and carries metrics), one failed run and one run with a failed source.
 
 ## Later
 

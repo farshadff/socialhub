@@ -6,11 +6,11 @@
 | Priority | Must |
 | Estimate | BE 1 d · FE 1.5 d · QA 0 d |
 | Depends on | E00-S02, E00-S03 |
-| Needed by | E02-S02, E02-S03, E02-S05 |
+| Needed by | E02-S02, E02-S05; E02-S03 (later) adds kinds |
 
 ## User story
 
-As an operator, I want to keep a list of the searches, feeds, hashtags and accounts worth watching for an Instagram account, so that every research run looks in the right places without me retyping them.
+As an operator, I want to keep a list of the searches and feeds worth watching for an Instagram account, so that every research run looks in the right places without me retyping them.
 
 ## Context
 
@@ -35,7 +35,7 @@ Research needs to know where to look. Each Instagram account has its own watchli
 ## Behaviour and rules
 
 1. A source belongs to one account and has a `kind`, a `value`, a `label` and an `active` flag.
-2. Creatable kinds are `web_search`, `rss`, `instagram_hashtag` and `instagram_account`. The enum value `manual` exists only because `TrendSignal.kind` shares the enum; creating a source with `kind = manual` returns `400 validation_error` on `kind` with code `invalid_choice`.
+2. Creatable kinds are `web_search` and `rss`. Any other value returns `400 validation_error` on `kind` with code `invalid_choice`. That includes `manual`, which is a `TrendSignal` kind only, and the Instagram hashtag and account kinds, which are reserved for E02-S03 and not part of the MVP.
 3. `kind` cannot change after creation. A `PATCH` that sends a different `kind` returns `400 validation_error` on `kind` with code `immutable`.
 4. The value is normalized before validation and stored normalized:
 
@@ -43,10 +43,8 @@ Research needs to know where to look. Each Instagram account has its own watchli
    | --- | --- | --- |
    | `web_search` | Trim; collapse runs of whitespace to one space | 3–200 characters |
    | `rss` | Trim; lowercase scheme and host | Absolute `http` or `https` URL, at most 500 characters, host present, host is not an IP literal and not `localhost` |
-   | `instagram_hashtag` | Trim; remove leading `#`; lowercase | 1–100 characters; letters (any script), digits and `_` only; no spaces |
-   | `instagram_account` | Trim; remove leading `@`; if a profile URL is pasted, take the first path segment; lowercase | 1–30 characters matching `^[a-z0-9._]+$`; must not start or end with `.` |
 
-5. `label` is optional, at most 80 characters. When empty it is set to a display form of the value: the query itself, the feed's host, `#tag`, or `@username`.
+5. `label` is optional, at most 80 characters. When empty it is set to a display form of the value: the query itself, or the feed's host.
 6. (`account`, `kind`, `value`) is unique. A duplicate returns `400 validation_error` on `value` with code `unique`.
 7. Limits per account, counted over active sources only. Exceeding one returns `400 validation_error` on `active` with code `limit_reached`:
 
@@ -54,8 +52,6 @@ Research needs to know where to look. Each Instagram account has its own watchli
    | --- | --- |
    | `web_search` | 8 |
    | `rss` | 15 |
-   | `instagram_hashtag` | 5 |
-   | `instagram_account` | 5 |
 
    The web search limit keeps one run within the AI gateway's 20-call guard (two calls per source plus one synthesis call).
 8. A new source is active by default. Deactivating a source keeps it and its history; a run ignores it.
@@ -63,9 +59,9 @@ Research needs to know where to look. Each Instagram account has its own watchli
 10. `last_run_at` and `last_status` are read-only here. Runs write them (E02-S02).
 11. Each source is returned with two computed fields:
     - `available` — whether a run can use this kind right now.
-    - `unavailable_reason` — `null`, `provider_not_configured` or `not_supported`.
+    - `unavailable_reason` — `null` or `provider_not_configured`.
 
-    `research.services.sources.availability(kind)` decides: `rss` is always available; `web_search` is available when the text AI provider is configured (`fake` counts); the two Instagram kinds return `not_supported` until E02-S03 lands, then reflect the research connection.
+    `research.services.sources.availability(kind)` decides: `rss` is always available; `web_search` is available when the text AI provider is configured (`fake` counts).
 12. Both roles can read and change the watchlist.
 13. An archived account's sources are readable but cannot be created or changed (`409 invalid_transition`).
 
@@ -120,28 +116,28 @@ Query: `account` (required), `kind` (comma-separated), `active` (`true` or `fals
     {
       "id": 23,
       "account": 3,
-      "kind": "instagram_hashtag",
-      "value": "قهوه_دمی",
-      "label": "#قهوه_دمی",
+      "kind": "web_search",
+      "value": "ترند قهوه دمی در کافه‌های تهران",
+      "label": "قهوه دمی",
       "active": true,
-      "last_run_at": null,
-      "last_status": null,
-      "available": false,
-      "unavailable_reason": "not_supported",
+      "last_run_at": "2026-11-21T08:15:40Z",
+      "last_status": "empty",
+      "available": true,
+      "unavailable_reason": null,
       "created_at": "2026-11-18T10:05:02Z",
-      "updated_at": "2026-11-18T10:05:02Z"
+      "updated_at": "2026-11-21T08:15:40Z"
     },
     {
       "id": 24,
       "account": 3,
-      "kind": "instagram_account",
-      "value": "bluebottle",
-      "label": "@bluebottle",
+      "kind": "rss",
+      "value": "https://dailycoffeenews.com/feed/",
+      "label": "dailycoffeenews.com",
       "active": false,
       "last_run_at": null,
       "last_status": null,
-      "available": false,
-      "unavailable_reason": "not_supported",
+      "available": true,
+      "unavailable_reason": null,
       "created_at": "2026-11-18T10:06:27Z",
       "updated_at": "2026-11-19T09:41:00Z"
     }
@@ -158,8 +154,8 @@ Request:
 ```json
 {
   "account": 3,
-  "kind": "instagram_hashtag",
-  "value": "#Specialty_Coffee",
+  "kind": "rss",
+  "value": " HTTPS://Sprudge.com/feed/ ",
   "label": ""
 }
 ```
@@ -170,14 +166,14 @@ Response `201`:
 {
   "id": 25,
   "account": 3,
-  "kind": "instagram_hashtag",
-  "value": "specialty_coffee",
-  "label": "#specialty_coffee",
+  "kind": "rss",
+  "value": "https://sprudge.com/feed/",
+  "label": "sprudge.com",
   "active": true,
   "last_run_at": null,
   "last_status": null,
-  "available": false,
-  "unavailable_reason": "not_supported",
+  "available": true,
+  "unavailable_reason": null,
   "created_at": "2026-11-22T09:12:00Z",
   "updated_at": "2026-11-22T09:12:00Z"
 }
@@ -200,7 +196,7 @@ Error example, duplicate value:
 | Case | Status and code | Field |
 | --- | --- | --- |
 | Missing `account`, `kind` or `value` | `400 validation_error` | `required` on the field |
-| `kind` is `manual` or unknown | `400 validation_error` | `kind`: `invalid_choice` |
+| `kind` is not `web_search` or `rss` | `400 validation_error` | `kind`: `invalid_choice` |
 | Value fails the rule for its kind | `400 validation_error` | `value`: `invalid`, `min_length` or `max_length` |
 | Duplicate | `400 validation_error` | `value`: `unique` |
 | Active limit reached | `400 validation_error` | `active`: `limit_reached` |
@@ -242,13 +238,13 @@ None.
 
 | Column | Content |
 | --- | --- |
-| Kind | Tag with icon: "Web search", "RSS feed", "Hashtag", "Instagram account" |
-| Value | `ContentText`. Hashtags shown with `#`, accounts with `@`, feed URLs as a link that opens in a new tab (`rel="noopener noreferrer"`) |
+| Kind | Tag with icon: "Web search", "RSS feed" |
+| Value | `ContentText`. Feed URLs as a link that opens in a new tab (`rel="noopener noreferrer"`) |
 | Label | Plain text |
 | Active | `Switch`; toggling sends `PATCH {active}` immediately and reverts on error |
 | Last run | `DateTime`, or "Never" |
 | Last result | `StatusTag`: `ok` → "OK" (green), `empty` → "Nothing new" (grey), `error:*` → "Failed" (red) with the reason in a tooltip (table below) |
-| Availability | Shown only when `available` is false: warning tag "Not available" with tooltip "Instagram research is not set up yet." (`not_supported`) or "The AI provider is not configured." (`provider_not_configured`) |
+| Availability | Shown only when `available` is false: warning tag "Not available" with tooltip "The AI provider is not configured." (`provider_not_configured`) |
 | Actions | "Edit", "Delete" |
 
 Toolbar filters: Kind (multi-select), Active (All / Active / Inactive). Toolbar button: "Add source" (primary).
@@ -264,18 +260,13 @@ Tooltip text for `last_status`:
 | `error:provider_error`, `error:transient` | "The provider failed. It will be tried again on the next run." |
 | `error:refused` | "The AI declined this search. Rephrase the query." |
 | `error:provider_not_configured` | "The AI provider is not configured." |
-| `error:not_supported` | "Instagram research is not set up yet." |
-| `error:session_required` | "The research account needs to sign in again." |
-| `error:rate_limited` | "Instagram asked us to slow down. It will be tried again later." |
-| `error:run_budget`, `error:daily_budget` | "The Instagram request budget was used up. It will be tried again on a later run." |
-| `error:not_found` | "This hashtag or account was not found, or the account is private." |
 
 **Add / edit modal** (`ModalForm`, title "Add source" or "Edit source"):
 
 | Field | Control | Notes |
 | --- | --- | --- |
 | Kind | `Select`, required | Disabled when editing |
-| Value | `Input`, required | Label and placeholder change with kind: "Search query" / "e.g. specialty coffee trends"; "Feed address" / "https://example.com/feed/"; "Hashtag" / "#coffee"; "Username" / "@username" |
+| Value | `Input`, required | Label and placeholder change with kind: "Search query" / "e.g. specialty coffee trends"; "Feed address" / "https://example.com/feed/" |
 | Label | `Input`, optional | Helper: "Shown in lists. Leave empty to use the value." |
 | Active | `Switch`, default on | |
 
@@ -288,7 +279,7 @@ Client-side validation mirrors rule 4 so most mistakes are caught before the req
 | State | Behaviour |
 | --- | --- |
 | Loading | Table skeleton |
-| Empty | "No research sources yet. Add the searches, feeds, hashtags and accounts you want to watch." with button "Add source" |
+| Empty | "No research sources yet. Add the searches and feeds you want to watch." with button "Add source" |
 | Error | Inline `Result` with Retry and the `request_id` |
 | No account selected | The shared "Pick or create an account" prompt |
 | Limit reached | The modal shows the field error "You can have at most {n} active {kind} sources. Deactivate one first." |
@@ -298,8 +289,8 @@ Client-side validation mirrors rule 4 so most mistakes are caught before the req
 ## Acceptance criteria
 
 1. Given an account with no sources, when I open `/research?tab=sources`, then I see the empty state with an "Add source" button.
-2. Given the add modal, when I save kind "Hashtag" with value `#Specialty_Coffee`, then the source is stored as `specialty_coffee`, labelled `#specialty_coffee`, and listed as active.
-3. Given a source `specialty_coffee` exists, when I add `#SPECIALTY_COFFEE` again, then I see a "this value already exists" error under the value field and nothing is created.
+2. Given the add modal, when I save kind "RSS feed" with value `HTTPS://Sprudge.com/feed/`, then the source is stored as `https://sprudge.com/feed/`, labelled `sprudge.com`, and listed as active.
+3. Given a source `https://sprudge.com/feed/` exists, when I add `https://SPRUDGE.com/feed/` again, then I see a "this value already exists" error under the value field and nothing is created.
 4. Given eight active web search sources, when I add a ninth, then the request fails with `limit_reached` and the modal explains the limit; when I add it as inactive, it is saved.
 5. Given kind "RSS feed", when I enter `ftp://example.com/feed` or `http://127.0.0.1/feed`, then the value is rejected.
 6. Given an existing source, when I send `PATCH` with a different `kind`, then I get `400` with code `immutable` on `kind`.
@@ -307,7 +298,8 @@ Client-side validation mirrors rule 4 so most mistakes are caught before the req
 8. Given an active source, when I switch it off, then the next research run does not visit it and its row shows it as inactive.
 9. Given a request without `account`, when I call `GET /research/sources/`, then I get `400 validation_error` on `account`.
 10. Given I am signed in as an operator, when I add, edit and delete sources, then all three work.
-11. Given Instagram research is not set up, when I view an Instagram source, then it shows the "Not available" tag with the explanation.
+11. Given the text AI provider is not configured, when I view a web search source, then it shows the "Not available" tag with the explanation; RSS sources show no tag.
+12. Given a create request with `kind = manual` or an Instagram hashtag or account kind, when I send it, then I get `400 validation_error` with `invalid_choice` on `kind`.
 
 ## Subtasks
 
@@ -316,7 +308,7 @@ Client-side validation mirrors rule 4 so most mistakes are caught before the req
 | ID | Task | Detail | Est. |
 | --- | --- | --- | --- |
 | E02-S01-BE1 | App and model | Create `apps/research` (app config, `urls.py` included under `/api/v1/research/`). `ResearchSource` model with constraints and index, migration, Django admin registration. | 0.25 d |
-| E02-S01-BE2 | Normalization and validation | `research/services/sources.py`: `normalize_value(kind, raw)`, per-kind validators, default label, active-limit check, `availability(kind)`. Unit tests for every row of rule 4, including Persian hashtags and pasted profile URLs. | 0.25 d |
+| E02-S01-BE2 | Normalization and validation | `research/services/sources.py`: `normalize_value(kind, raw)`, per-kind validators, default label, active-limit check, `availability(kind)`. Unit tests for every row of rule 4, including Persian search queries and feed URLs with upper-case hosts. | 0.25 d |
 | E02-S01-BE3 | Serializer and viewset | `ResearchSourceSerializer` (immutable `kind`, computed `available` and `unavailable_reason`), `ResearchSourceViewSet` with account scoping, filters, ordering; delete guard while a run is active (returns false until E02-S02 adds runs). | 0.25 d |
 | E02-S01-BE4 | Contract and API tests | Add the four endpoints and the `ResearchSource` schema to `docs/openapi.yaml`. API tests for list, create, update, delete, each error row, both roles, archived account. | 0.25 d |
 
@@ -334,7 +326,7 @@ None. Tests are part of each subtask.
 
 ## Test notes
 
-- Unit: normalization table (trim, `#` and `@` stripping, lowercase, profile URL to username, whitespace collapse); validators (length limits, character sets, IP-literal and `localhost` hosts rejected); label defaults; limit counting ignores inactive sources.
+- Unit: normalization table (trim, whitespace collapse, lowercase scheme and host); validators (length limits, IP-literal and `localhost` hosts rejected); label defaults; limit counting ignores inactive sources; every kind other than `web_search` and `rss` rejected.
 - API: uniqueness is checked after normalization; `PATCH` to active respects the limit; list requires `account`; ordering and filters; `available` reflects a patched `availability` function.
 - Panel: empty state; modal field switching by kind; optimistic switch rolls back on a `400`; tooltip text for each `last_status` family.
 - Fixtures: one account with one source of each kind.
@@ -344,3 +336,4 @@ None. Tests are part of each subtask.
 - "Test source" button: run the collector once for a single source and show what it would return. The collectors in E02-S02 already work per source.
 - Import and export of the watchlist as CSV.
 - Per-source settings (results per run, language) in a `config` JSON field.
+- Instagram hashtag and account sources come back with E02-S03, which adds their normalization rows, limits, kind tags and status tooltips.

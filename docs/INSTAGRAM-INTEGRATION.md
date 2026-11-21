@@ -137,7 +137,13 @@ Metric names requested per format. Meta replaced `impressions` and `plays` with 
 | `replies` | — | — | `replies` |
 | `extra` (stored, not evaluated) | `total_interactions`, `profile_visits`, `follows` | `total_interactions`, `ig_reels_avg_watch_time`, `ig_reels_video_view_total_time` | `navigation`, `profile_visits`, `follows` |
 
-The map lives in code (`apps/instagram/metrics.py`) keyed by Graph API version, so a renamed metric is a one-line change. A metric the API rejects or omits is recorded in `unavailable`. Story insights are available only for about 24 hours after posting **(confirm in setup)**, which is why the last story checkpoint is 23 hours.
+The map lives in code (`apps/instagram/metrics.py`) keyed by Graph API version, so a renamed metric is a one-line change. A metric the API rejects or omits is recorded in `unavailable`.
+
+Reading insights responses (E09-S01 owns the details; confirm each in setup):
+
+- A value may come back as `values[0].value` or as `total_value.value`; the adapter reads either.
+- If the request fails because one metric name is invalid for this media (error code 100), the adapter repeats the request once without the rejected names and lists them in `unavailable`. This is not a connection problem.
+- Meta has withheld insights for media with very few viewers (returned as error code 10 in earlier versions). On the insights endpoint this is treated as "all metrics unavailable", never as `PermissionMissing`, so it cannot put the connection into `needs_attention`. Story insights are available only for about 24 hours after posting **(confirm in setup)**, which is why the last story checkpoint is 23 hours.
 
 ## 7. Provider interface
 

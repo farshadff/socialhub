@@ -79,7 +79,7 @@ The panel for topics is E02-S05. This story has no frontend work.
     | --- | --- | --- | --- | --- | --- | --- | --- |
     | value | 32 | 50 | 63 | 73 | 82 | 89 | 100 |
 
-15. **`source_diversity`** — whether the evidence comes from independent places. An origin is the URL host without `www.` for `web_search`, `rss` and manual signals with a URL, and the `author` for Instagram signals and manual signals without a URL. With `d` distinct origins and `k` distinct signal kinds:
+15. **`source_diversity`** — whether the evidence comes from independent places. An origin is the URL host without `www.` for `web_search`, `rss` and manual signals with a URL, and the `author` for manual signals without a URL. A manual signal that links an Instagram post uses its `author` (or the host when `author` is empty), because every such link has the host `instagram.com` while each account is an independent voice. With `d` distinct origins and `k` distinct signal kinds:
 
     `source_diversity = min(100, 25 × min(d, 3) + (25 if k ≥ 2 else 0))`
 
@@ -107,7 +107,7 @@ The panel for topics is E02-S05. This story has no frontend work.
 
 19. A topic with no signals has all components and the score at 0.
 
-    Worked example: four signals — an article on perfectdailygrind.com 3 days old, a feed item on sprudge.com 1 day old, a hashtag post by `@brewlab` 5 days old at the 92nd percentile, a hashtag post by `@homebarista` 9 days old at the 40th percentile.
+    Worked example: four signals — an article on perfectdailygrind.com 3 days old, a feed item on sprudge.com 1 day old, a manual signal linking an Instagram reel by `@brewlab` 5 days old at the 92nd percentile, a manual signal linking an Instagram post by `@homebarista` 9 days old at the 40th percentile.
 
     | Component | Calculation | Value |
     | --- | --- | --- |
@@ -353,7 +353,7 @@ None. Tests are part of each subtask.
 
 - Scoring is pure and takes `now` as an argument; tests never depend on the clock.
 - Recency boundaries: exactly 2 days gives 100; exactly 14 days gives 0; undated signals use `captured_at`.
-- Diversity: `www.example.com` and `example.com` are one origin; two Instagram authors are two origins; one origin with two kinds scores 50.
+- Diversity: `www.example.com` and `example.com` are one origin; two manual Instagram links by different authors are two origins, and one with an empty author falls back to `instagram.com`; one origin with two kinds scores 50.
 - Replacement: a `new` AI topic referenced by a candidate is kept (use a stub candidate relation until E03-S02 exists).
 - Transaction: force an exception after delete and before insert; assert the old topics are still there.
 - Language: the fake fixture is in Persian; assert text is stored and returned unchanged, including zero-width non-joiners.

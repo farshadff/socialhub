@@ -47,10 +47,10 @@ Kinds: `item`, `plan`, `slot`, `candidate`, `topic`, `job`, `qc`, `review`, `pub
 | --- | --- | --- |
 | Not started / neutral | default (grey) | item `selected`, `cancelled`; plan `draft`, `closed`; slot `open`, `skipped`; candidate `candidate`, `rejected`; topic `new`, `dismissed`; feed item `new`, `ignored`; feed source and research source `empty`; account `archived`; connection `disconnected`; brief and script `superseded`; publication `cancelled`; review task `resolved`; verdict `on_par`, `insufficient_data` ("Not enough data"); goal `no_goal`, `not_measured`; report `draft`; carried finding `ignored`; repurpose task `dismissed`; metrics Incomplete; checkpoint Skipped, Upcoming; system `unknown` |
 | In progress | processing (blue) | item `briefed`, `scripted`, `in_production`, `in_check`, `publishing`; job `queued`, `running`; research run `running`; publication `publishing`, `verifying` ("Verifying"); attempt running; repurpose task `in_selection`; metrics Collecting; checkpoint Due |
-| Waiting for a person | warning (orange) | item `needs_revision`, `in_review`; review task `open`; brief and script `draft` ("Waiting for approval"); connection `challenge_required`, `needs_attention`; QC `revise`; attempt `retryable_error`, `ambiguous`; publication flag "Retry n of 3", "Post by hand — due"; rights `unknown`; clip "Needs clip", `padded`; goal `missed` at a non-final checkpoint ("Goal not met yet"); carried finding `pending`; ai_run `refused`; metrics Overdue, Needs manual entry; checkpoint Overdue |
+| Waiting for a person | warning (orange) | item `needs_revision`, `in_review`; review task `open`; brief and script `draft` ("Waiting for approval"); connection `expiring`, `needs_attention`; QC `revise`; attempt `retryable_error`, `ambiguous`; publication flag "Retry n of 3", "Post by hand — due"; rights `unknown`; clip "Needs clip", `padded`; goal `missed` at a non-final checkpoint ("Goal not met yet"); carried finding `pending`; ai_run `refused`; metrics Overdue, Needs manual entry; checkpoint Overdue |
 | Ready / scheduled | cyan | item `approved`, `scheduled`; slot `reserved`, `scheduled`; publication `scheduled`; candidate `proposed`; topic `shortlisted`; feed item `eligible`; repurpose task `open` |
 | Done / good | success (green) | item `published`; plan `active`; slot `published`; candidate `selected`; topic `used`; feed item `used`; feed source and research source `ok`; research run `completed`; account `active`; publishing `on` ("Publishing on"); connection `connected`; brief and script `approved`; QC `pass`; publication `published`; attempt `success`, `verified_live`; rights `cleared`; clip `ok` ("Ready"); verdict `outperforming`; goal `met`; report `accepted`; carried finding `applied`; repurpose task `used`; ai_run `ok`; system `ok`; metrics Complete; checkpoint Captured |
-| Problem | error (red) | item `failed`; job `failed`; research run `failed`; feed source and research source `error:*`; publishing `off` ("Publishing off", everywhere, including the Accounts table); QC `escalate`; publication `failed`; publication flags "Publishing off", "Session problem", "Daily limit"; attempt `fatal_error`; rights `restricted`, `expired`; clip "Too short"; verdict `underperforming`; goal `missed` at the final checkpoint; ai_run `error`; system `unavailable` |
+| Problem | error (red) | item `failed`; job `failed`; research run `failed`; feed source and research source `error:*`; publishing `off` ("Publishing off", everywhere, including the Accounts table); QC `escalate`; publication `failed`; publication flags "Publishing off", "Connection problem", "Daily limit"; attempt `fatal_error`; rights `restricted`, `expired`; clip "Too short"; verdict `underperforming`; goal `missed` at the final checkpoint; ai_run `error`; system `unavailable` |
 
 Tags that are not statuses:
 
@@ -100,11 +100,13 @@ Query parameters that link into a page:
 | --- | --- |
 | Item workspace | `/content/:id?tab=brief\|script\|production\|checks\|publishing\|performance\|history` |
 | Content list | `/content?plan=&status=` and the other list filters, mirrored to the query string; a List / Board toggle |
-| Account settings | `/settings/accounts/:id?tab=profile\|brand\|connection\|automation` |
+| Account settings | `/settings/accounts/:id?tab=profile\|brand\|connection\|automation`; after Instagram sign-in, `?tab=connection&connect=success` or `&connect=error&code=` |
 | Plans | `/plans?create=1`; `/plans/:planId?tab=plan\|slots`; `/plans/:planId?findings=1` |
 | Research | `/research?plan=&tab=topics\|signals\|sources\|runs` |
 | Selection | `/selection?plan=&tab=candidates\|proposal\|feed-items\|feed-sources` |
 | Calendar | `/calendar?focus={publicationId}` |
+
+The Connection tab has no password or verification-code form. An admin connects an account with the button "Connect with Instagram", which opens Instagram's own sign-in and approval page; the OAuth callback then returns the browser to the tab with the `connect` parameters above. The tab confirms success with `message` and shows a failure as a `notification` with the error text for `code`.
 
 ## 6. Components to use
 

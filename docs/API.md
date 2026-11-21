@@ -18,7 +18,7 @@ Almost every resource belongs to one Instagram account.
 - List endpoints require `?account={id}` and return `400 validation_error` on `account` when it is missing.
 - Create endpoints take `account` in the body, or inherit it from the parent in the URL.
 - The panel keeps the current account in its top bar and adds the parameter to every call.
-- Not account-scoped: `/accounts/`, `/fonts/`, `/system/*`, `/ai/runs/` (account optional; the list adds `totals`). `/fonts/` is not paginated (`{"results": [...]}`). `/candidates/` and `/selection/proposal/` also require `plan`.
+- Not account-scoped: `/accounts/`, `/fonts/`, `/system/*`, `/ai/runs/` (account optional; the list adds `totals`), and the public `/instagram/oauth/callback/` (section 2, E00). `/fonts/` is not paginated (`{"results": [...]}`). `/candidates/` and `/selection/proposal/` also require `plan`.
 - A resource outside the user's accounts, or one that does not exist, returns `404 not_found`.
 
 ### Shapes
@@ -113,8 +113,8 @@ Additions for the MVP:
 | `version_conflict` | 409 | `base_version` is not the latest |
 | `provider_not_configured` | 503 | A required API key or provider setting is missing |
 | `provider_error` | 502 | The AI or Instagram provider failed |
-| `instagram_session_required` | 409 | The account is not connected or needs attention |
-| `instagram_challenge_required` | 409 | Instagram asks for a verification code |
+| `instagram_not_connected` | 409 | The account is not connected to Instagram, or its connection is `needs_attention` |
+| `instagram_permission_missing` | 409 | The connection lacks an Instagram permission the action needs |
 | `publishing_disabled` | 409 | The account's stop switch is off |
 | `insights_unavailable` | 409 | Metrics were requested for an account whose provider is `manual` or whose `insights` capability is false |
 | `unsupported_media` | 400 | The uploaded file fails format rules; each field error carries `reason`: `type_not_allowed`, `extension_mismatch`, `empty_file`, or a format-rule reason defined by the owning story |
@@ -156,17 +156,21 @@ Create endpoints that would be harmful to repeat (`/selection/confirm/`, `/revie
 | `GET /accounts/{id}/brand/` · `PUT /accounts/{id}/brand/` | Brand profile | E00-S03 |
 | `POST /accounts/{id}/brand/logo/` | Upload a logo (`variant=light|dark`) | E00-S03 |
 | `GET /fonts/` | Bundled fonts available to brand profiles | E00-S03 |
-| `GET /accounts/{id}/connection/` | Connection status and capabilities | E00-S04 |
-| `POST /accounts/{id}/connection/login/` (**admin**) | Start a provider login → job | E00-S04 |
-| `POST /accounts/{id}/connection/challenge/` (**admin**) | Submit a verification code → job | E00-S04 |
-| `POST /accounts/{id}/connection/verify/` | Re-check the session and capabilities → job | E00-S04 |
-| `DELETE /accounts/{id}/connection/` (**admin**) | Disconnect and delete the stored session | E00-S04 |
-| `GET /system/status/` (**admin**) | Which providers and keys are configured; the Instagram research connection; versions and `release` | E00-S05, E11-S02 |
+| `GET /accounts/{id}/connection/` | Status, username, account type, token expiry, scopes, capabilities and `has_token` (never the token) | E00-S04 |
+| `PATCH /accounts/{id}/connection/` (**admin**) | Choose the provider (`graph_api`, `manual`, `fake`), only while `disconnected`; `manual` connects at once with every capability false | E00-S04 |
+| `POST /accounts/{id}/connection/connect/` (**admin**) | Start "Connect with Instagram": returns `authorize_url` and `expires_at` (the OAuth state lives 10 minutes) | E00-S04 |
+| `GET /instagram/oauth/callback/` | Instagram's OAuth redirect (public); finishes the connection and redirects the browser to the account's Connection tab | E00-S04 |
+| `POST /accounts/{id}/connection/verify/` | Re-check the token, permissions and capabilities → job | E00-S04 |
+| `POST /accounts/{id}/connection/refresh-token/` (**admin**) | Refresh the long-lived token now → job | E00-S04 |
+| `DELETE /accounts/{id}/connection/` (**admin**) | Disconnect: delete the stored token, set every capability false, turn `publishing_enabled` off | E00-S04 |
+| `GET /system/status/` (**admin**) | Which providers and keys are configured; whether the Meta app settings are configured and the pinned Graph API version; versions and `release` | E00-S05, E11-S02 |
 | `POST /system/ai-test/` (**admin**) | One text call and one image call → job | E00-S05 |
 | `GET /ai/runs/` (**admin**) | AI call log with filters and `totals` | E00-S05 |
 | `GET /ai/runs/{id}/` (**admin**) | One AI call with its payload | E00-S05 |
 | `GET /jobs/{id}/` | One job | E00-S06 |
 | `GET /jobs/` | Jobs by `account` (required for operators; admins may omit it or pass `account=none` for system jobs), `kind`, `kind_prefix`, `status`, `target_type`, `target_id`, `created_after`, `created_before` | E00-S06 |
+
+The OAuth callback is public because Instagram's redirect lands on it. It needs no signed-in session and takes no `account` parameter: the `state` that `connect/` stored in Redis identifies the account and the admin, and an unknown or expired `state` is refused. It finishes the token exchange synchronously and answers with a redirect, not JSON: `/settings/accounts/{id}?tab=connection&connect=success`, or `&connect=error&code={code}` with a connection code from [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGRATION.md) section 7.
 
 ### E01 Weekly plan
 

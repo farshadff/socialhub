@@ -54,9 +54,9 @@ E10-S01 builds on these pages: it adds a verdict column and filter to the post l
 4. `POST /analytics/refresh/` starts a job of kind `analytics.refresh`. With `publication` it targets that post (`target_type = publication`); without it, the whole account (`target_type = account`).
 5. **Publication refresh.** If a checkpoint of the post is due (E09-S01 rule 6), the job captures it as that checkpoint. Otherwise it captures an `adhoc` snapshot, unless the post has an `adhoc` snapshot younger than 15 minutes, in which case it captures nothing and reports `recent`.
 6. **Account refresh.** In order: (a) every due checkpoint of the account's published posts, at most 30; (b) an `adhoc` snapshot for each post published in the last 7 days whose latest captured snapshot is older than 60 minutes, at most 20; (c) today's follower snapshot if none exists (E09-S02, `snapshot_followers`).
-7. The job uses `apps.instagram.session.account_session(account, wait_seconds=60)` (E00-S04) per post, the normal 60-second lock wait; publishing therefore keeps priority. It updates `progress` as `processed / total × 100` and `message`, for example "Reading 3 of 8 posts".
-8. Errors inside the job follow E09-S01 rule 17, with these job results: a session error ends the job `failed` with `instagram_session_required` or `instagram_challenge_required`; `RateLimited` ends it `failed` with `rate_limited` and sets the backoff key; per-post transient errors are listed in `result.errors` and the job succeeds when at least one read succeeded, otherwise it fails with `provider_error`.
-9. Limits: one active `analytics.refresh` job per account (`409 job_in_progress`). An account refresh may start at most once every 10 minutes per account (`429 rate_limited` with `Retry-After`). Refresh is refused with `409 insights_unavailable` for metrics-by-hand accounts (provider `manual` or `insights` false) and with `409 instagram_session_required` when the connection is not `connected`.
+7. The job uses `apps.instagram.session.account_session(account, wait_seconds=60)` (E00-S04) per post, the normal 60-second lock wait, and calls the provider with the `(provider, token)` it yields; publishing therefore keeps priority. It updates `progress` as `processed / total × 100` and `message`, for example "Reading 3 of 8 posts".
+8. Errors inside the job follow E09-S01 rule 17, with these job results: `TokenInvalid` ends the job `failed` with `token_invalid` and `PermissionMissing` with `permission_missing` (both after `report_connection_error`); `RateLimited`, and `AccountBusy` when the lock is not free within 60 seconds, end it `failed` with `rate_limited` (`RateLimited` also sets the backoff key); per-post transient errors are listed in `result.errors` and the job succeeds when at least one read succeeded, otherwise it fails with `provider_error`.
+9. Limits: one active `analytics.refresh` job per account (`409 job_in_progress`). An account refresh may start at most once every 10 minutes per account (`429 rate_limited` with `Retry-After`). Refresh is refused with `409 insights_unavailable` for metrics-by-hand accounts (provider `manual` or `insights` false) and with `409 instagram_not_connected` when the connection is `disconnected` or `needs_attention`.
 
 ### Manual post snapshot
 
@@ -150,7 +150,7 @@ Result of a finished account refresh:
 | A refresh job is active for the account | `409 job_in_progress`, `details.job` |
 | Account refresh within 10 minutes of the last one | `429 rate_limited`, header `Retry-After` in seconds |
 | Provider `manual` or `insights` false | `409 insights_unavailable` |
-| Connection not `connected` | `409 instagram_session_required` |
+| Connection `disconnected` or `needs_attention` | `409 instagram_not_connected` |
 
 ### `GET /api/v1/analytics/posts/?account={id}`
 
@@ -365,7 +365,7 @@ Labels and tag colours for `metrics_status`: Overdue (warning), Needs manual ent
 
 ### Post metrics — `/analytics/posts`
 
-- `PageContainer` titled "Post metrics", description `SyncStatusLine`, primary action `JobButton` "Refresh metrics" (account refresh). While the job runs it shows `JobProgress`; when it ends the table reloads and a message reads "Metrics refreshed: 7 readings" or, for a failure, a notification with the error text and a link to the connection page for session errors. The button is hidden for metrics-by-hand accounts and disabled with a tooltip for 10 minutes after a refresh ("You can refresh again in 6 minutes").
+- `PageContainer` titled "Post metrics", description `SyncStatusLine`, primary action `JobButton` "Refresh metrics" (account refresh). While the job runs it shows `JobProgress`; when it ends the table reloads and a message reads "Metrics refreshed: 7 readings" or, for a failure, a notification with the error text and a link to the connection page for connection errors (`token_invalid`, `permission_missing`). The button is hidden for metrics-by-hand accounts and disabled with a tooltip for 10 minutes after a refresh ("You can refresh again in 6 minutes").
 - `ProTable`, 20 rows per page, server ordering. Columns: Post (thumbnail 40 px and title, linking to `/analytics/posts/{publication}`), Format, Published (`DateTime`), Age, Latest ("24 h" tag, or "Ad hoc" with its age), Reach, Views, Saves, Shares, Likes, Comments, Replies (shown only when the format filter includes stories), Metrics status. Metric columns are sortable.
 - Filters in the table form: Plan (select of the account's plans, default the current plan from `GET /plans/current/`, with an "All plans" option), Format (multi-select), Published (date range), Metrics status (multi-select).
 - Row action menu: "Open", "Refresh now" (publication refresh), "Enter metrics", "View on Instagram" (opens the permalink in a new tab).

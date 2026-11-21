@@ -6,7 +6,7 @@
 | Priority | Must |
 | Estimate | BE 3 d · FE 0.5 d · QA 0 d |
 | Depends on | E02-S01, E00-S05, E00-S06, E01-S01 |
-| Needed by | E02-S03, E02-S04, E02-S05 |
+| Needed by | E02-S04, E02-S05; E02-S03 (later) adds a collector |
 
 ## User story
 
@@ -14,7 +14,7 @@ As an operator, I want to press one button and have the system look through my w
 
 ## Context
 
-This is the "record sources and signals" half of workflow step 02. A research run walks the account's active sources, turns each finding into a `TrendSignal`, and skips anything it has seen before. This story delivers the run itself, the web search and RSS collectors, manual signal entry, and the "Run research" button. Instagram collection plugs into the same run in E02-S03. Topic synthesis is the last stage of the run and is specified in E02-S04; until that story lands the stage is a no-op.
+This is the "record sources and signals" half of workflow step 02. A research run walks the account's active sources, turns each finding into a `TrendSignal`, and skips anything it has seen before. This story delivers the run itself, the web search and RSS collectors, manual signal entry, and the "Run research" button. Public Instagram signals are not collected in the MVP (E02-S03 is Later); an operator who finds a relevant Instagram post adds it as a manual signal with its link and numbers. Topic synthesis is the last stage of the run and is specified in E02-S04; until that story lands the stage is a no-op.
 
 ## Scope
 
@@ -63,7 +63,7 @@ This is the "record sources and signals" half of workflow step 02. A research ru
 
 ### Collecting
 
-9. Sources are visited one at a time in this order: `web_search`, `rss`, then Instagram kinds (E02-S03). Within a kind, by `id`.
+9. Sources are visited one at a time in this order: `web_search`, then `rss`. Within a kind, by `id`.
 10. A source whose `availability` is false is not called. It is recorded with status `error:<unavailable_reason>`.
 11. Each collector returns a list of `SignalDraft` objects (`kind`, `url`, `title`, `excerpt`, `author`, `published_at`, `metrics`, `raw`). The run service, not the collector, normalizes, deduplicates and saves.
 12. Per-source limits per run: web search keeps at most 8 signals; RSS keeps at most 20 (newest first).
@@ -79,7 +79,7 @@ This is the "record sources and signals" half of workflow step 02. A research ru
     3. The fragment is removed.
     4. Query parameters named `utm_*`, `fbclid`, `gclid`, `igshid`, `igsh`, `ref`, `ref_src`, `mc_cid`, `mc_eid`, `spm` are removed. The rest are sorted by name.
     5. A trailing `/` is removed unless the path is only `/`.
-    6. Instagram post and reel URLs (`/p/{code}`, `/reel/{code}`, `/reels/{code}`, `/tv/{code}`) become `https://instagram.com/p/{code}`.
+    6. Instagram post and reel URLs (`/p/{code}`, `/reel/{code}`, `/reels/{code}`, `/tv/{code}`) become `https://instagram.com/p/{code}`. Manual signals often link Instagram posts, so the same post pasted in two forms is caught as a duplicate.
 17. When there is no URL (manual signals only), the fingerprint is the SHA-256 of `kind|author|excerpt` with author and excerpt lowercased and whitespace-collapsed.
 18. (`account`, `fingerprint`) is unique. When a draft's fingerprint already exists for the account, no row is created. If the draft carries metrics, the existing row's `metrics` are replaced with the newer values. `captured_at`, `run` and `source` of the existing row do not change. The source's `duplicates` counter goes up by one.
 19. Two drafts in the same run with the same fingerprint: the first is saved, the second counts as a duplicate.
@@ -87,7 +87,7 @@ This is the "record sources and signals" half of workflow step 02. A research ru
 ### Partial failure and outcome
 
 20. Each source is collected inside its own error boundary. A failure records `error:<code>` on the source (`last_status`) and in `stats.by_source`, and the run continues.
-21. Source statuses: `ok` (at least one new signal), `empty` (nothing new), or `error:<code>` with one of `timeout`, `http_<status>`, `invalid_feed`, `blocked_url`, `provider_error`, `refused`, `provider_not_configured`, `not_supported`.
+21. Source statuses: `ok` (at least one new signal), `empty` (nothing new), or `error:<code>` with one of `timeout`, `http_<status>`, `invalid_feed`, `blocked_url`, `provider_error`, `refused`, `provider_not_configured`.
 22. Every visited source gets `last_run_at` = now and `last_status`.
 23. The collection stage fails the run only when every attempted source ended in an error. The run then has status `failed` and the job has `error_code = all_sources_failed`. Synthesis is skipped.
 24. Otherwise, if `synthesize` is true, the run calls the synthesis stage (E02-S04) and then completes. A synthesis failure fails the run with the synthesis error code, but collected signals are kept.
@@ -467,6 +467,7 @@ On page load the panel calls `GET /jobs/?account=&kind=research.run&status=queue
 13. Given no plan is passed and the account has a draft plan for next week, when the run starts, then the run's `plan` is that plan.
 14. Given the `fake` AI provider and no API keys, when I run research, then the run completes from fixtures.
 15. Given an account with `autopilot.selection` on and a run linked to its active plan, when the run completes, then a `selection.rank` job is requested for that plan once; with autopilot off, no ranking job is created.
+16. Given a manual signal saved with `https://www.instagram.com/reel/DCx1abcDEF/?igsh=MWx0`, when I add another with `https://instagram.com/p/DCx1abcDEF/`, then I get `unique` with the first signal's ID.
 
 ## Subtasks
 
@@ -508,3 +509,4 @@ None. Tests are part of each subtask.
 - Conditional feed requests using stored `ETag` and `Last-Modified` in a `ResearchSource.state` JSON field.
 - A `last_seen_at` on signals to tell "still trending" from "seen once".
 - Cancel: `POST /research/runs/{id}/cancel/` setting a flag the loop checks between sources.
+- Public Instagram signals as a third collector, visited after RSS (E02-S03).
