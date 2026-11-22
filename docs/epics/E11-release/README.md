@@ -9,10 +9,10 @@ Make the ten-step workflow usable and shippable. This epic adds the one page tha
 **In the MVP**
 
 - An Overview page with this week's plan, item counts by status, an attention list, the next publications and sync health.
-- One production environment: a single Linux VM running Docker Compose, with TLS, an environment file for secrets, daily backups and a tested restore.
-- A runbook for the failures that are expected in the first weeks.
+- One production environment: a single Linux VM running Docker Compose, with TLS, an environment file for secrets, a media bucket Meta can fetch from over HTTPS, the production redirect URI on the Meta app, daily backups and a tested restore.
+- A runbook for the failures that are expected in the first weeks, including expired or invalid Instagram tokens, connect problems, rejected media and the publishing quota.
 - An automated end-to-end acceptance suite that runs the whole workflow against fake providers.
-- A pilot dry run on a real, disposable Instagram account, with a sign-off checklist.
+- A pilot dry run on a real, disposable Instagram professional account connected through the Meta app in development mode, with a sign-off checklist.
 
 **Left for later**
 
@@ -36,7 +36,7 @@ Make the ten-step workflow usable and shippable. This epic adds the one page tha
 1. **E11-S02 starts early.** The production compose file and a first deployment can be done as soon as E00 is finished, so every release (R0–R3) is demonstrated on the server, not on a laptop.
 2. **E11-S03's harness starts in R1.** The seed command and the acceptance test skeleton are written once the first pipeline steps exist; scenarios are added as each epic lands. The last scenarios (analytics, both feedback loops) arrive in R3.
 3. **E11-S01 is built in R3**, when every source of attention items exists (review tasks, publications, metrics).
-4. **The pilot dry run closes the MVP.** It runs on the deployed system with real providers and a throwaway account, and takes about two calendar weeks: one full plan week plus the 7-day metric checkpoint of the last posts.
+4. **The pilot dry run closes the MVP.** It runs on the deployed system with real providers and a throwaway professional account that is an Instagram tester on the Meta app, and takes about two calendar weeks: one full plan week plus the 7-day metric checkpoint of the last posts.
 
 ```text
 R0            R1                 R2                      R3
@@ -59,7 +59,7 @@ E11-S02 ────► deploy each release ────────────
 
 ## Depends on / needed by
 
-- **Depends on:** E11-S01 reads data from E01 (plan, slots, goals), E03-S04 (items), E00-S04 (connection), E00-S06 (jobs), E07-S06 (review tasks), E08 (publications), E09 (snapshots). E11-S02 depends on E00. E11-S03 depends on every epic.
+- **Depends on:** E11-S01 reads data from E01 (plan, slots, goals), E03-S04 (items), E00-S04 (connection), E00-S06 (jobs), E07-S06 (review tasks), E08 (publications), E09 (snapshots). E11-S02 depends on E00, in particular the Meta app from E00-S04's spike. E11-S03 depends on every epic.
 - **Needed by:** nothing inside the MVP; this epic is the exit gate.
 
 ## Done when

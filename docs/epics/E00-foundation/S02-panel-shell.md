@@ -25,7 +25,7 @@ It is frontend-only. After it, a feature story adds a page by replacing one plac
 - Remove template demo pages, routes, mocks and unused template components.
 - The route tree and sidebar from the navigation map, with a placeholder page for every route a later story owns.
 - `frontend/config/theme.ts` as the single source of tokens; bundled `Vazirmatn` font.
-- Top bar: logo and name, account switcher, publishing indicator, reserved slot for the attention count, user menu.
+- Top bar: logo and name, account switcher, connection indicator, publishing indicator, reserved slot for the attention count, user menu.
 - Global account state and the helper that adds `account` to API calls.
 - Shared components: `StatusTag`, `ContentText`, `DateTime`, `AccountGate`, `PageError`, `PlaceholderPage`.
 - Error handling: English text by error code, field errors into forms, conflict handling.
@@ -87,13 +87,13 @@ It is frontend-only. After it, a feature story adds a page by replacing one plac
 20. Changing the account stores the new ID, invalidates every TanStack Query whose key starts with the old account ID, and keeps the user on the same list page. On a detail page (a route with an ID), it navigates to that section's list page, because the record belongs to the other account.
 21. `src/utils/accountRequest.ts` exports `withAccount(params)` and a `useAccountId()` hook. All account-scoped service calls use them, so no page builds the `account` parameter by hand.
 22. `AccountGate` wraps account-scoped pages. With no current account it renders the "No account selected" state: for admins, "Add your first Instagram account to get started." with the button "Add account" linking to `/settings/accounts`; for operators, "No Instagram account is set up yet. Ask an admin to add one."
-23. The publishing indicator sits to the right of the spacer: a `StatusTag`-styled tag reading "Publishing on" (success) or "Publishing off" (error) from `currentAccount.publishing_enabled`. Clicking it goes to `/settings/accounts/{id}?tab=automation`. It is hidden when there is no account.
-24. The attention count is an `AttentionBadge` component placed in the top bar that renders nothing until E11-S01 gives it data.
+23. The publishing indicator sits to the right of the spacer: a `StatusTag`-styled tag reading "Publishing on" (success) or "Publishing off" (error) from `currentAccount.publishing_enabled`. Clicking it goes to `/settings/accounts/{id}?tab=automation`. It is hidden when there is no account. Just left of it, a connection indicator shows `StatusTag kind="connection"` for `currentAccount.connection_status` when that is `expiring`, `needs_attention` or `disconnected`, with the tooltip "Instagram connection: {label}". Clicking it goes to `/settings/accounts/{id}?tab=connection`. It is hidden when the connection is `connected` (a `manual` connection is always `connected`) and when there is no account.
+24. The attention count is an `AttentionBadge` component placed in the top bar that renders nothing until E11-S01 gives it data. E11-S01's items include the connection types `connection_needs_attention`, `connection_expiring` and `connection_disconnected`; the badge counts them like any other item.
 25. Data fetching convention for all later stories: `ProTable`'s `request` prop for tables; TanStack Query (`useQuery`, `useMutation`) for everything else, with query keys shaped `[accountId, resource, params]`. One `QueryClientProvider` is added in `rootContainer` with `retry: false` for mutations and one retry for queries, and no refetch on window focus.
 
 ### Shared components
 
-26. `StatusTag` (`src/components/StatusTag`): props `kind` and `status`. `kind` is one of the kinds listed in DESIGN-SYSTEM.md section 3 (the list grows as epics add statuses, for example `item`, `plan`, `slot`, `candidate`, `topic`, `job`, `qc`, `review`, `publication`, `connection`, `publishing`, `verdict`, `goal`, `account`, `research_run`, `research_source`, `feed_item`, `feed_source`, `script`, `ai_run`). It looks up colour and label in one map implementing that section; epics add their entries to the map rather than defining their own colours. An unknown pair renders a grey tag with the raw value in sentence case, and logs a console warning in development.
+26. `StatusTag` (`src/components/StatusTag`): props `kind` and `status`. `kind` is one of the kinds listed in DESIGN-SYSTEM.md section 3 (the list grows as epics add statuses, for example `item`, `plan`, `slot`, `candidate`, `topic`, `job`, `qc`, `review`, `publication`, `connection`, `publishing`, `verdict`, `goal`, `account`, `research_run`, `research_source`, `feed_item`, `feed_source`, `script`, `ai_run`). It looks up colour and label in one map implementing that section; epics add their entries to the map rather than defining their own colours. This story ships the `connection` entries, because the top bar uses them: `connected` green "Connected", `expiring` orange "Expiring soon", `needs_attention` orange "Needs attention", `disconnected` grey "Disconnected". An unknown pair renders a grey tag with the raw value in sentence case, and logs a console warning in development.
 27. `ContentText` (`src/components/ContentText`): renders user or AI content with `dir="auto"`, `lang` from the current account's `content_language`, and the content font stack (`Vazirmatn` first when the language is `fa`). Props: `as` (`span`, `p`, `div`), `ellipsis` (rows), `preserveLineBreaks`. Captions, briefs, scripts, topic titles and feed item text always go through it.
 28. `DateTime` (`src/components/DateTime`): props `value` (ISO UTC string) and `format` (`datetime` default `D MMM YYYY, HH:mm`; `date`; `time`; `relative`). It converts to the current account's timezone with dayjs `utc` and `timezone` plugins and shows a tooltip "{UTC value} UTC · {timezone name}". A null value renders "—".
 29. `PageError` (`src/components/PageError`): an Ant Design `Result` with the English text for the error code, a "Retry" button calling the supplied refetch, and the `request_id` in small secondary text ("Reference: …").
@@ -120,8 +120,8 @@ It is frontend-only. After it, a feature story adds a page by replacing one plac
 | `unsupported_media` | That file type or size isn't supported. |
 | `provider_not_configured` | A required integration isn't set up. Ask an admin to check Settings → System. |
 | `provider_error` | An external service failed. Try again in a few minutes. |
-| `instagram_session_required` | This account isn't connected to Instagram. Reconnect it in Settings. |
-| `instagram_challenge_required` | Instagram is asking for a verification code. Enter it in Settings → Connection. |
+| `instagram_not_connected` | This account isn't connected to Instagram, or its connection needs attention. Check Settings → Accounts → Connection. |
+| `instagram_permission_missing` | Instagram hasn't granted the permission this needs. Connect the account again and allow every permission. |
 | `publishing_disabled` | Publishing is switched off for this account. |
 | `service_unavailable` | The service is temporarily unavailable. Try again shortly. |
 | `service_timeout` | The service took too long to respond. Try again. |
@@ -137,11 +137,11 @@ It is frontend-only. After it, a feature story adds a page by replacing one plac
 
 ## Data
 
-None. Reads `InstagramAccount` fields `id`, `handle`, `display_name`, `timezone`, `content_language`, `publishing_enabled`, `status` through `GET /accounts/` (see E00-S03).
+None. Reads `InstagramAccount` fields `id`, `handle`, `display_name`, `timezone`, `content_language`, `publishing_enabled`, `status` and the computed `connection_status` through `GET /accounts/` (see E00-S03).
 
 ## API
 
-No new endpoints. Uses `GET /auth/me/` (E00-S01) and `GET /accounts/` (E00-S03). Until E00-S03's backend is merged, a Umi mock at `frontend/mock/accounts.ts` returns two sample accounts in the documented shape; the mock is deleted in E00-S03.
+No new endpoints. Uses `GET /auth/me/` (E00-S01) and `GET /accounts/` (E00-S03). Until E00-S03's backend is merged, a Umi mock at `frontend/mock/accounts.ts` returns two sample accounts in the documented shape, one `connected` and one `needs_attention`; the mock is deleted in E00-S03.
 
 ## Background work
 
@@ -155,7 +155,7 @@ None.
 
 This whole story is the panel shell; the rules above are the specification. Summary of what a user sees after it:
 
-- **Top bar:** logo and "Social Hub" · account switcher · (space) · "Publishing on/off" tag · user avatar with menu (Light theme, Dark theme, Sign out).
+- **Top bar:** logo and "Social Hub" · account switcher · (space) · connection tag when the connection is not healthy · "Publishing on/off" tag · user avatar with menu (Light theme, Dark theme, Sign out).
 - **Sidebar:** the eleven items of rule 7.
 - **Content area:** `PageContainer` with the page title. Every page not yet built shows the placeholder.
 - **States:** no account (rule 22), loading accounts (the switcher shows a loading state and pages show skeletons), accounts failed to load (`PageError` in the content area with Retry), not allowed (403 page).
@@ -175,6 +175,7 @@ This whole story is the panel shell; the rules above are the specification. Summ
 11. Given a `validation_error` with `fields[0].path = "goals.0.target_value"`, when `applyFieldErrors` runs on a form with that field, then the error appears under that field.
 12. Given a search of `frontend/src` for hex colour literals, when run after this story, then the only matches are inside `config/theme.ts` (which lives outside `src`) — that is, none in `src`.
 13. Given the dark theme is chosen from the avatar menu, when pages render, then all shell elements and shared components remain readable (no hard-coded light colours).
+14. Given the current account's `connection_status` is `needs_attention`, when any page is shown, then the top bar shows an orange "Needs attention" connection tag that links to the account's Connection tab; given it is `connected`, then no connection tag is shown.
 
 ## Subtasks
 
@@ -188,7 +189,7 @@ None.
 | --- | --- | --- | --- |
 | E00-S02-FE1 | Remove the template and build the route tree | Apply rules 1–6. Rewrite `config/routes.ts` to rules 7–11 with `PlaceholderPage`; update `src/locales/en-US/menu.ts`; title, favicon, manifest, footer (rules 12, 16). Remove unused dependencies and refresh `package-lock.json`. `npm run lint` and `npm run build` pass. | 0.5 |
 | E00-S02-FE2 | Theme tokens and font | `config/theme.ts`; wire into `config/config.ts` and `config/defaultSettings.ts`; bundle `Vazirmatn` and `@font-face` (rules 13–15). Check light and dark. | 0.5 |
-| E00-S02-FE3 | Account context and top bar | `src/models/account.ts`, `src/utils/accountRequest.ts`, `src/services/socialhub/accounts.ts` (list only), `AccountSwitcher`, publishing indicator, `AttentionBadge` shell, `AccountGate`, `QueryClientProvider` in `rootContainer`, temporary accounts mock (rules 17–25). Unit tests for selection order and switching. | 0.75 |
+| E00-S02-FE3 | Account context and top bar | `src/models/account.ts`, `src/utils/accountRequest.ts`, `src/services/socialhub/accounts.ts` (list only), `AccountSwitcher`, connection and publishing indicators, `AttentionBadge` shell, `AccountGate`, `QueryClientProvider` in `rootContainer`, temporary accounts mock (rules 17–25). Unit tests for selection order and switching. | 0.75 |
 | E00-S02-FE4 | Shared display components | `StatusTag` with the full colour and label map, `ContentText`, `DateTime`, `PlaceholderPage` (rules 26–28, 30). Tests: every status in DESIGN-SYSTEM.md section 3 maps to the expected colour; direction and timezone cases. | 0.5 |
 | E00-S02-FE5 | Error handling | `src/utils/errorText.ts`, field text map, `applyFieldErrors`, `PageError`, default mutation and conflict handling in `src/requestErrorConfig.ts` (rules 29, 31–35). Update `src/requestErrorConfig.test.ts`. | 0.5 |
 | E00-S02-FE6 | Shell checks and contributor notes | Playwright smoke test: sign in, walk every sidebar item, check titles; keyboard walk through top bar and menu with visible focus. Update `frontend/AGENTS.md`: services live in `src/services/socialhub/`, tokens in `config/theme.ts`, data-fetching convention, shared components to reuse. | 0.25 |

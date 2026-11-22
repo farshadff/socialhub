@@ -257,9 +257,14 @@ Publishing:
 | `SOCIALHUB_PUBLISH_WINDOW` | Local hours in which new times are chosen | `09:00-22:00` |
 | `SOCIALHUB_PUBLISH_GRID_MINUTES` | Grid for chosen times | 15 |
 | `SOCIALHUB_PUBLISH_BATCH_SIZE` | Publications claimed per dispatcher run | 20 |
-| `SOCIALHUB_PUBLISH_LEASE_SECONDS_IMAGE` / `_VIDEO` | Worker claim length | 300 / 900 |
+| `SOCIALHUB_PUBLISH_LEASE_SECONDS_IMAGE` / `_VIDEO` | Worker claim length | 360 / 480 |
 | `SOCIALHUB_PUBLISH_MAX_LATENESS_MINUTES` | How late a publication may still go out | 120 |
 | `SOCIALHUB_PUBLISH_MAX_ATTEMPTS` | Sends per publication before it fails | 3 |
+| `SOCIALHUB_PUBLISH_CONTAINER_POLL_IMAGE` / `_VIDEO` | In-worker container polling: interval and limit in seconds before the attempt is parked | `3,30` / `10,60` |
+| `SOCIALHUB_PUBLISH_CONTAINER_RECHECK_SECONDS` | Recheck interval for a parked container | 60 |
+| `SOCIALHUB_PUBLISH_CONTAINER_MAX_WAIT_MINUTES` | Longest wait for a container before `container_timeout` | 15 |
+| `SOCIALHUB_PUBLISH_QUOTA_RECHECK_MINUTES` | When a publication blocked by `daily_limit` is tried again | 60 |
+| `SOCIALHUB_PUBLISH_LIVE_MATCH_MAX_MINUTES` | How long a `PUBLISHED` container with no matching post is rechecked | 30 |
 | `SOCIALHUB_PUBLISH_RETRY_BACKOFF_MINUTES` | Waits between retries | `2,10,30` |
 | `SOCIALHUB_PUBLISH_VERIFY_SETTLE_SECONDS` / `_VERIFY_LOOKBACK_SECONDS` | Wait before checking live; how far before the attempt to look | 30 / 120 |
 

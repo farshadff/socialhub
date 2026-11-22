@@ -161,17 +161,25 @@ Conventions and error shape: [API.md](../../API.md). All endpoints here are admi
     "timeout_seconds": 180
   },
   "instagram": {
-    "default_provider": "instagrapi",
-    "allowed_providers": ["instagrapi", "manual"],
-    "proxy_required": true,
-    "research_provider": "instagrapi",
+    "default_provider": "graph_api",
+    "allowed_providers": ["graph_api", "manual"],
+    "meta_app": {
+      "configured": true,
+      "missing": [],
+      "app_id": "1234567890123456",
+      "redirect_uri": "https://social.example.com/api/v1/instagram/oauth/callback/"
+    },
+    "api_version": "v25.0",
+    "http_proxy": false,
+    "token_refresh_after_days": 7,
+    "media_url_ttl_seconds": 7200,
     "encryption_key_configured": true
   },
   "storage": { "backend": "s3", "bucket": "socialhub-media", "public_base_url": null }
 }
 ```
 
-The `storage` block is filled by E00-S06 and the `instagram` block by E00-S04; until those land the keys are present with `null` values.
+The `storage` block is filled by E00-S06 and the `instagram` block by E00-S04; until those land the keys are present with `null` values. In the `instagram` block, `meta_app.configured` is true when `SOCIALHUB_META_APP_ID`, `SOCIALHUB_META_APP_SECRET`, `SOCIALHUB_META_REDIRECT_URI` and `SOCIALHUB_IG_API_VERSION` are set (the `graph_api` provider needs all four), and `missing` names the ones that are not; `api_version` is the pinned `SOCIALHUB_IG_API_VERSION` (null when unset); `http_proxy` says only whether `SOCIALHUB_IG_HTTP_PROXY` is set. The app secret, the proxy URL and the encryption key are never returned. The app ID is not secret: it appears in every authorize URL.
 
 ### `POST /api/v1/system/ai-test/`
 
@@ -344,7 +352,7 @@ Failure handling is rule 38: the outcome is reported, nothing retries beyond rul
 | --- | --- |
 | Application | Version, Environment, Database, Redis, Workers (Default, Render, Publish) each as a tag: "OK" (success), "Unavailable" (error), "Unknown" (default) |
 | AI providers | Two rows, Text and Images: provider name ("Claude", "OpenAI", "Fake (local testing)"), model ID, and a tag "Ready" (success) or "Missing {setting names}" (error). A warning `Alert` lists `models_without_price` when not empty: "No price is set for {models}; their cost is recorded as 0." Action: "Run AI test" (`JobButton`) with the helper text "Makes one small call to each provider. Real providers charge for it." |
-| Instagram | Default connection type, Allowed types, Proxy required (Yes/No), Research provider, Encryption key ("Configured" / "Missing") |
+| Instagram | Default connection type, Allowed types, Meta app (tag "Ready" or "Missing {setting names}"), App ID, Redirect URI, Graph API version (or "Not set"), Egress proxy (Yes/No), Token refresh (every {n} days), Encryption key ("Configured" / "Missing") |
 | Storage | Backend ("Local disk" / "S3-compatible"), Bucket |
 
 After the test job ends, a result list appears under the AI providers card: for each provider, a success line "Claude replied in 1.8 s" or an error line with the English text for the `error_code` and the `error_detail`. The page reloads the status afterwards.
@@ -386,7 +394,7 @@ States: skeletons while loading; `PageError` on failure; empty table text "No AI
 | E00-S05-BE2 | Gateway core | `gateway.py`: `run_text`, `run_image`, result and error types, model selection, brand block rendering, retry loop, timeout, call guard, `AIRun` writing with payload truncation and cost calculation from `SOCIALHUB_AI_PRICES` (rules 1–4, 18, 23–29). Unit tests with a scripted provider double. | 0.75 |
 | E00-S05-BE3 | Anthropic adapter | `providers/anthropic_provider.py` following the pinned SDK's documentation: structured output, effort, no sampling parameters, refusal check with server-side fallback, web search tool and citation extraction, `pause_turn` continuation, image blocks with downscaling, prompt caching of the stable prefix, streaming with the final-message helper, typed error mapping (rules 12–18). Tests against recorded response objects; one opt-in live test skipped without a key. | 1.0 |
 | E00-S05-BE4 | OpenAI image adapter and fake providers | `providers/openai_provider.py` (rules 19–22); `providers/fake.py` for text and image with fixtures, variants, Redis-backed and in-process test overrides (rules 30–33); import-boundary test (rule 2). | 0.5 |
-| E00-S05-BE5 | System endpoints, test job and pruning | `GET /system/status/`, `POST /system/ai-test/` and its task, `GET /ai/runs/` with filters and `totals`, `GET /ai/runs/{id}/`, `ai.prune_payloads` and its Beat entry, `openapi.yaml`. API tests including the permission checks. | 0.25 |
+| E00-S05-BE5 | System endpoints, test job and pruning | `GET /system/status/` (with `null` placeholders for the `storage` and `instagram` blocks), `POST /system/ai-test/` and its task, `GET /ai/runs/` with filters and `totals`, `GET /ai/runs/{id}/`, `ai.prune_payloads` and its Beat entry, `openapi.yaml`. API tests including the permission checks. | 0.25 |
 
 ### Frontend
 

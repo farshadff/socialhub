@@ -47,7 +47,7 @@ The workflow says "Pass — schedule automatically" and "Sequence posts across s
 1. `content.services.pipeline` calls `publishing.services.scheduling.schedule_item(item)` inside the same database transaction that changes the item to `approved`. If scheduling raises, the approval is rolled back and the quality-check job fails with `error_code = "scheduling_failed"`; the item stays `in_check` or `in_review`.
 2. `schedule_item` locks the `InstagramAccount` row with `SELECT … FOR UPDATE` first, so two items of one account are never scheduled at the same moment against stale counts.
 3. `schedule_item` is idempotent. If the item already has a publication in status `scheduled`, `publishing`, `verifying` or `published`, it returns that publication unchanged.
-4. A publication is one-to-one with its item. If the item has a `cancelled` publication from an earlier `withdraw`, that row is reused: its `content_version`, `scheduled_at`, `slot`, `delivery`, `caption_fingerprint` are replaced, `attempt_count` is reset to 0, `blocked_reason` and `next_attempt_at` are cleared, and `status` becomes `scheduled`. `PublishAttempt` rows from before are kept as history.
+4. A publication is one-to-one with its item. If the item has a `cancelled` publication from an earlier `withdraw`, that row is reused: its `content_version`, `scheduled_at`, `slot`, `delivery`, `caption_fingerprint` are replaced, `attempt_count` is reset to 0, `blocked_reason` and `next_attempt_at` are cleared, `remote_container_id`, `container_status` and `container_created_at` are cleared (a container holds the media of one version, so the new version needs its own), and `status` becomes `scheduled`. `PublishAttempt` rows from before are kept as history.
 
 ### Preconditions
 
@@ -105,7 +105,7 @@ All arithmetic on local dates and times is done in the account timezone and conv
 
 ### Delivery
 
-17. `Publication.delivery` (new field, see Data) is decided at scheduling time and checked again at send time: `manual` when the account's `AccountConnection.provider` is `manual`, or when the capability for the format (`publish_feed`, `publish_reel`, `publish_story`) is false; otherwise `provider`. An account with no connection row or status `disconnected` still gets `provider`; the send-time gate reports the session problem.
+17. `Publication.delivery` (new field, see Data) is decided at scheduling time and checked again at send time: `manual` when the account's `AccountConnection.provider` is `manual`, or when the capability for the format (`publish_feed`, `publish_reel`, `publish_story`) is false; otherwise `provider`. Capabilities come from the connection's `verify` (E00-S04): the publish capabilities are true when `instagram_business_content_publish` is granted and the account is professional, and `SOCIALHUB_IG_CAPABILITY_OVERRIDES` can turn one off. An account with no connection row, status `disconnected` or `needs_attention` still gets `provider`; the send-time gate blocks it with `blocked_reason = connection_problem` until an admin reconnects it, so a temporary connection problem never turns a week into posting by hand.
 
 ### Caption and fingerprint
 
@@ -119,7 +119,7 @@ All arithmetic on local dates and times is done in the account timezone and conv
     #خانه_اول #مشاوره_املاک #سرمایه_گذاری
     ```
 
-19. `caption_fingerprint(text)`: normalize to Unicode NFC, replace every run of whitespace with one space, strip, apply `casefold()`, take the first 100 characters, and store the first 32 hex characters of the SHA-256. When the normalized text is shorter than 10 characters, and for every story, the fingerprint is the empty string, which tells verification (E08-S04) to match by time window instead.
+19. `caption_fingerprint(text)`: normalize to Unicode NFC, replace every run of whitespace with one space, strip, apply `casefold()`, take the first 100 characters, and store the first 32 hex characters of the SHA-256. Verification (E08-S04) uses it to recognise the post in the account's recent media list (`list_recent_media`) when the container reports `PUBLISHED` or cannot be read. When the normalized text is shorter than 10 characters, and for every story, the fingerprint is the empty string, which tells verification to match on product type and time window instead.
 20. The full caption is not stored on the publication. It is rebuilt from the content version at send time; the version is immutable once `passed`, so the result is the same.
 
 ### Taking an item off the schedule
@@ -164,9 +164,9 @@ None in this story. E08-S02 shows the scheduled publication on the calendar and 
 5. Given a feed post with no usable slot and one reel scheduled today at 14:00, `min_gap_minutes` 120, `max_feed_per_day` 2, when it is approved at 13:20, then the publication is placed today at 16:00.
 6. Given a story with no usable slot and five stories already on every remaining day of the week, when it is approved, then no publication exists, the item is `in_review`, and a review task with reason `no_slot` is open.
 7. Given an item whose plan is closed and an active plan for the current week exists, when it is approved, then the search uses the current plan's slots and week end.
-8. Given an account using the `manual` provider, when an item is approved, then the publication has `delivery = manual`.
+8. Given an account using the `manual` provider, when an item is approved, then the publication has `delivery = manual`; given a `graph_api` account whose `publish_story` capability is false, then a story gets `delivery = manual` and a reel gets `provider`; given a `graph_api` account in `needs_attention`, then the publication gets `provider`.
 9. Given `schedule_item` is called twice for the same approved item, then exactly one publication exists.
-10. Given a failed publication whose review task is resolved with `request_changes`, when `withdraw` runs and a new version of the item is later approved, then the same publication row is `scheduled` again with the new version and `attempt_count` 0.
+10. Given a failed publication whose review task is resolved with `request_changes`, when `withdraw` runs and a new version of the item is later approved, then the same publication row is `scheduled` again with the new version, `attempt_count` 0 and no `remote_container_id`.
 11. Given a caption with trailing spaces and three hashtags, then `full_caption` returns the caption, one blank line and `#a #b #c`, and two captions that differ only in whitespace or letter case have the same fingerprint.
 12. Given a time on a day when the account's clocks change, then `find_time` returns a time inside the posting window in local time.
 

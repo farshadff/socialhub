@@ -23,7 +23,7 @@ The page is read-only. Every entry links to the page where the problem is fixed.
 **In**
 
 - `GET /overview/` returning everything the page needs in one call.
-- Attention entries for: open review tasks, failed jobs, connection problems, publishing switched off, blocked or overdue publications, metrics sync gaps.
+- Attention entries for: open review tasks, failed jobs, the Instagram connection (needs attention, token expiring, disconnected with posts waiting), publishing switched off, blocked or overdue publications, metrics sync gaps.
 - The `/overview` page.
 - The attention count and "Publishing on/off" indicator in the top bar, fed by the same endpoint.
 
@@ -65,7 +65,9 @@ The page is read-only. Every entry links to the page where the problem is fixed.
 | `type` | Condition | Severity | Entries | `link` |
 | --- | --- | --- | --- | --- |
 | `review_task_open` | `ReviewTask.status = open` for the account | `high` | One per task, at most 10; beyond that one aggregated entry "{n} more review tasks" | `/review/{task_id}` (aggregate: `/review`) |
-| `connection_problem` | `AccountConnection.status` is `challenge_required`, `needs_attention` or `disconnected` | `high` | One | `/settings/accounts/{account_id}?tab=connection` |
+| `connection_needs_attention` | `AccountConnection.status = needs_attention` (token invalid or revoked, or a required permission missing) | `high` | One. Detail by `last_error_code`: `token_invalid` → "Instagram no longer accepts the access token. Reconnect the account."; `permission_missing` → "A required Instagram permission is missing. Reconnect and approve every permission." | `/settings/accounts/{account_id}?tab=connection` |
+| `connection_expiring` | `AccountConnection.status = expiring` (token expires within 7 days and refresh keeps failing) | `medium` | One. Detail "The Instagram access token expires on {date}. Reconnect the account before then." | `/settings/accounts/{account_id}?tab=connection` |
+| `connection_disconnected` | `AccountConnection.status = disconnected` (or no connection row) and the account has at least one `scheduled` publication with `delivery = provider` | `high` | One, with the count. Detail "{n} publications are scheduled. Connect the account so they can be sent." | `/settings/accounts/{account_id}?tab=connection` |
 | `publication_blocked` | A `Publication` with `delivery = provider`, `status = scheduled` and a non-null `blocked_reason`; or `delivery = provider`, `status = scheduled`, `scheduled_at` more than 10 minutes in the past and `next_attempt_at` null | `high` | One per publication, at most 5, then an aggregate | `/calendar?focus={publication_id}` |
 | `publication_due_by_hand` | A `Publication` with `delivery = manual`, `status = scheduled` and `scheduled_at` in the past (E08-S04 rule 25) | `high` | One per publication, at most 5, then an aggregate. Title "Post by hand: {item title}", detail "Due {time}. Download the asset, post it, then mark it as published." | `/content/{content_item_id}?tab=publishing` |
 | `publishing_off` | `publishing_enabled = false` and at least one publication is `scheduled` within the next 7 days | `high` if one is due within 24 hours, else `medium` | One, with the count and the earliest time | `/settings/accounts/{account_id}?tab=automation` |
@@ -73,14 +75,14 @@ The page is read-only. Every entry links to the page where the problem is fixed.
 | `metrics_sync_gap` | (a) published publications with `next_metrics_at` more than `SOCIALHUB_METRICS_OVERDUE_MINUTES` (60) minutes in the past; or (b) the account has published publications and no `AccountSnapshot` dated today or yesterday (account timezone) | `medium` | One for (a) with the count and the oldest due time; one for (b) | (a) `/analytics/posts`, (b) `/analytics/account` |
 
 11. A publication that has `status = failed` is not listed on its own: E08-S04 opens a review task with reason `publish_failed`, which appears as `review_task_open`.
-12. A `publication_blocked` entry whose `blocked_reason` is `publishing_paused` is suppressed when a `publishing_off` entry exists, and one whose reason is `session_problem` is suppressed when a `connection_problem` entry exists, so one cause is not reported twice.
-13. Every entry has a stable `id` (`"{type}:{object_id}"`, or `"{type}:aggregate"`), a `title` and `detail` in English, `since` (when the condition began: task `created_at`; job `finished_at`; blocked or due-by-hand publication `scheduled_at`; connection `last_error_at`; the oldest overdue time for metrics; for `publishing_off`, the creation time of the earliest affected publication), and `count` (1 unless aggregated).
+12. A `publication_blocked` entry whose `blocked_reason` is `publishing_paused` is suppressed when a `publishing_off` entry exists, and one whose reason is `connection_problem` is suppressed when a `connection_needs_attention` or `connection_disconnected` entry exists, so one cause is not reported twice. A `connection_expiring` entry suppresses nothing: publishing still works until the token expires.
+13. Every entry has a stable `id` (`"{type}:{object_id}"`, or `"{type}:aggregate"`), a `title` and `detail` in English, `since` (when the condition began: task `created_at`; job `finished_at`; blocked or due-by-hand publication `scheduled_at`; `connection_needs_attention`: the connection's `last_error_at`; `connection_expiring`: `token_expires_at` minus 7 days; `connection_disconnected`: the connection's `updated_at`, or the earliest affected publication's `created_at` when there is no connection row; the oldest overdue time for metrics; for `publishing_off`, the creation time of the earliest affected publication), and `count` (1 unless aggregated).
 14. Admin-only fixes are still listed for operators (they need to know), with `requires_admin: true` so the panel can say "Ask an admin".
 
 ### Next publications and sync
 
 15. `next_publications` lists up to 5 publications with `status` in `scheduled`, `publishing`, `verifying`, ordered by `scheduled_at`, from now minus 1 hour onward (so an overdue one stays visible).
-16. `sync` reports: `metrics_last_snapshot_at` (latest `MetricSnapshot.captured_at` with `source = provider` for the account), `metrics_overdue` (count from rule 10a), `followers_last_snapshot_date`, `connection_status`, `connection_last_verified_at`, `feeds_last_synced_at` (latest `FeedSource.last_synced_at` among active sources, or null).
+16. `sync` reports: `metrics_last_snapshot_at` (latest `MetricSnapshot.captured_at` with `source = provider` for the account), `metrics_overdue` (count from rule 10a), `followers_last_snapshot_date`, `connection_status`, `connection_last_verified_at`, `connection_token_expires_at` (null for the `manual` provider or without a token), `feeds_last_synced_at` (latest `FeedSource.last_synced_at` among active sources, or null).
 17. `followers` reports `current` (latest snapshot) and `change_7d` (latest minus the snapshot from 7 days earlier, or the nearest earlier one within 10 days; null if none).
 
 ## Data
@@ -199,7 +201,8 @@ Response `200`:
     "metrics_overdue": 2,
     "followers_last_snapshot_date": "2026-12-02",
     "connection_status": "connected",
-    "connection_last_verified_at": "2026-12-02T01:00:07Z",
+    "connection_last_verified_at": "2026-12-02T03:12:44Z",
+    "connection_token_expires_at": "2027-01-24T02:15:09Z",
     "feeds_last_synced_at": "2026-12-02T06:00:02Z"
   },
   "followers": {"current": 12840, "change_7d": 96}
@@ -259,7 +262,7 @@ PageContainer: "Overview"  ·  description "@demo_brand · Week of 28 Nov – 4 
 | Next publications | `ProCard` + `List` | Up to five rows: `DateTime` (account time, relative day name), format tag, title in `ContentText`, `StatusTag`; a red line under the row with the blocked reason text when `blocked_reason` is set ("Waiting: publishing is off", "Waiting: Instagram connection problem", "Waiting: daily limit reached"). Footer link "Open calendar". |
 | Pipeline | `ProCard` with seven `Statistic` tiles | Tiles and the statuses they sum: "Plan & select" (`selected`, `briefed`), "Create" (`scripted`, `in_production`), "Check" (`in_check`, `needs_revision`), "Needs you" (`in_review` plus `items_waiting.brief_approval` and `items_waiting.script_approval`, shown as a breakdown in the tooltip), "Ready" (`approved`, `scheduled`, `publishing`), "Published" (`published`), "Problems" (`failed`). Each tile links to `/content?plan={id}&status={comma-separated statuses}`. Tile colours follow the status colour mapping; the number always has its label. |
 | Needs attention | `ProCard` + `List` | Title with the total count. Each row: severity icon with accessible name ("High", "Medium", "Low") and matching tag colour (error, warning, default), title, detail in grey, relative time from `since` with the exact time in a tooltip, and a link button "Open". Rows with `requires_admin` show "Ask an admin" instead of "Open" for operators (admins get "Open"). If `attention_count` exceeds the rows shown: a footer "Showing 20 of {n}". |
-| Sync health | `ProDescriptions` | Instagram: `StatusTag` for the connection status and "verified {relative time}". Metrics: relative time of the last snapshot and, if `metrics_overdue > 0`, "{n} overdue" in warning colour. Followers: date of the last snapshot. Feeds: relative time of the last sync, or "No feed sources". |
+| Sync health | `ProDescriptions` | Instagram: `StatusTag` for the connection status (`connected` green, `expiring` orange, `needs_attention` orange, `disconnected` grey), "verified {relative time}", and "access expires {date}" in secondary text (warning colour when the status is `expiring`). Metrics: relative time of the last snapshot and, if `metrics_overdue > 0`, "{n} overdue" in warning colour. Followers: date of the last snapshot. Feeds: relative time of the last sync, or "No feed sources". |
 
 ### Top bar
 
@@ -290,7 +293,7 @@ PageContainer: "Overview"  ·  description "@demo_brand · Week of 28 Nov – 4 
 3. Given an open review task, when the endpoint is called, then the attention list contains a `review_task_open` entry with severity `high` linking to `/review/{id}`, and the top-bar badge count includes it.
 4. Given the review task is resolved, when the page refreshes, then the entry is gone and the count is one lower.
 5. Given `publishing_enabled = false` and a publication due in three hours, when the endpoint is called, then there is one `publishing_off` entry with severity `high`, and no separate `publication_blocked` entry for the same publication.
-6. Given the connection status is `challenge_required`, when the endpoint is called, then there is one `connection_problem` entry with `requires_admin = true`, and an operator sees "Ask an admin" instead of "Open".
+6. Given the connection status is `needs_attention` with `last_error_code = token_invalid` and a publication blocked with `connection_problem`, when the endpoint is called, then there is one `connection_needs_attention` entry with severity `high` and `requires_admin = true`, no `publication_blocked` entry for that publication, and an operator sees "Ask an admin" instead of "Open". Given the status is `expiring`, then there is one `connection_expiring` entry with severity `medium`. Given the status is `disconnected`, then there is a `connection_disconnected` entry only while the account has a scheduled provider publication.
 7. Given a render job failed an hour ago and a later job of the same kind for the same item succeeded, when the endpoint is called, then no `job_failed` entry is returned for it.
 8. Given a published post whose `next_metrics_at` was two hours ago, when the endpoint is called, then a `metrics_sync_gap` entry reports one overdue post, and `sync.metrics_overdue = 1`.
 9. Given 14 open review tasks, when the endpoint is called, then 10 single entries and one aggregated entry are returned for that type, and `attention_count` counts all 14.
@@ -300,7 +303,7 @@ PageContainer: "Overview"  ·  description "@demo_brand · Week of 28 Nov – 4 
 13. Given a request without `account`, when the endpoint is called, then the response is `400 validation_error` on `account`.
 14. Given a publication with `delivery = manual` whose time passed 20 minutes ago, when the endpoint is called, then there is one `publication_due_by_hand` entry linking to `/content/{id}?tab=publishing` and no `publication_blocked` entry for it.
 15. Given a failed `publish.verify` job (`target_type = publication`), then its `job_failed` entry links to `/calendar?focus={publication_id}`; a failed `repurpose.suggest` job links to `/selection`.
-14. Given 500 content items and 200 publications in the account, when the endpoint is called without cache, then it uses at most 15 queries.
+16. Given 500 content items and 200 publications in the account, when the endpoint is called without cache, then it uses at most 15 queries.
 
 ## Subtasks
 
@@ -309,7 +312,7 @@ PageContainer: "Overview"  ·  description "@demo_brand · Week of 28 Nov – 4 
 | ID | Task | Detail | Est. |
 | --- | --- | --- | --- |
 | E11-S01-BE1 | Plan, pipeline and sync aggregates | `apps/core/services/overview.py`: plan selection (rule 5), slot counts, goal actuals (rule 7), `items_by_status`, `items_waiting`, `next_publications`, `sync`, `followers`. Aggregate queries only; add missing indexes in a migration. Unit tests with factories, including null metrics and missing snapshots. | 0.5 |
-| E11-S01-BE2 | Attention builders | One function per type in `apps/core/services/attention.py` implementing the table in rule 10 with caps, aggregation, suppression (rule 12), stable IDs, `since`, `requires_admin`, and fixed English texts per reason and error code. Tests for each condition, its boundary (10 minutes, 60 minutes, 48 hours, 24 hours) and the suppression rules. | 0.5 |
+| E11-S01-BE2 | Attention builders | One function per type in `apps/core/services/attention.py` implementing the table in rule 10 (including the three connection types) with caps, aggregation, suppression (rule 12), stable IDs, `since`, `requires_admin`, and fixed English texts per reason and error code. Tests for each condition, its boundary (10 minutes, 60 minutes, 48 hours, 24 hours) and the suppression rules. | 0.5 |
 | E11-S01-BE3 | Endpoint | `GET /overview/` view and serializer, account validation, 30-second cache with `fresh` bypass, query-count test (≤ 15), `openapi.yaml` entry. | 0.5 |
 
 ### Frontend

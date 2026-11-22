@@ -39,7 +39,7 @@ Almost every record in the product belongs to an `InstagramAccount`. This story 
 
 1. Only admins create accounts. Creating one also creates its `BrandProfile` (with the defaults in rule 12) and its `AccountConnection` (`provider` from `SOCIALHUB_IG_DEFAULT_PROVIDER`, `status = disconnected`) in the same transaction.
 2. `handle`: a leading `@` and surrounding spaces are stripped, the value is lowercased, and it must match `^[a-z0-9._]{1,30}$`. It is unique across all accounts including archived ones.
-3. `handle` can be changed only by an admin and only while the connection status is `disconnected`. Otherwise the API returns `409 invalid_transition`.
+3. `handle` can be changed only by an admin and only while the connection status is `disconnected`. Otherwise the API returns `409 invalid_transition`. The reason: the OAuth callback and the daily verification in E00-S04 compare the Instagram username with the handle, so a connected account's handle must keep matching it. Changing the handle never calls Instagram.
 4. `display_name`: 1–80 characters.
 5. `timezone`: a valid IANA name (checked with `zoneinfo`). Omitted on create means `SOCIALHUB_DEFAULT_ACCOUNT_TIME_ZONE`.
 6. `content_language`: `fa` or `en`; default `fa`. `week_start_day`: 0–6 with 0 = Monday; default 5 (Saturday).
@@ -47,7 +47,7 @@ Almost every record in the product belongs to an `InstagramAccount`. This story 
 8. `posting_rules` limits: `min_gap_minutes` 15–1440, `max_feed_per_day` 1–10, `max_stories_per_day` 1–20, `max_revisions` 0–5. A `PATCH` may send a subset of keys; they are merged into the stored object. Unknown keys are rejected.
 9. `autopilot` holds exactly three booleans: `selection`, `brief`, `script`. Partial updates are merged. Unknown keys are rejected.
 10. `publishing_enabled`, `autopilot` and `status` can be changed only by admins. An operator sending any of them gets `403 permission_denied` and nothing is saved. Operators can change the other fields.
-11. Turning `publishing_enabled` on requires the connection to be `connected`, or the connection's provider to be `manual`. Otherwise `409 instagram_session_required`. Turning it off is always allowed.
+11. Turning `publishing_enabled` on requires the connection status to be `connected` or `expiring` (a `manual` connection is always `connected`). Otherwise `409 instagram_not_connected`. Turning it off is always allowed.
 12. Archiving (`status = archived`) sets `publishing_enabled` to false in the same update. Archived accounts are excluded from the account switcher and from all scheduled background work. Restoring sets `status = active` and leaves publishing off. Accounts are never deleted through the API.
 13. The list is ordered by `handle`. Filters: `status` (default returns both; the switcher asks for `active`), `search` (matches `handle` and `display_name`, case-insensitive).
 
@@ -82,7 +82,7 @@ Almost every record in the product belongs to an `InstagramAccount`. This story 
 
 Tables `InstagramAccount`, `BrandProfile`, `AccountConnection` (created here, used in E00-S04) as defined in [DATA-MODEL.md](../../DATA-MODEL.md) section 2. No new fields.
 
-New setting: `SOCIALHUB_IG_DEFAULT_PROVIDER` (`fake` locally; `instagrapi` when hosted).
+New setting: `SOCIALHUB_IG_DEFAULT_PROVIDER` (`fake` locally; `graph_api` when hosted).
 
 Computed, not stored: `connection_status`, `connection_provider` and `brand_complete` on the account representation; `complete` and `warnings` on the brand representation.
 
@@ -118,7 +118,7 @@ Query: `status`, `search`, `page`, `page_size`.
       },
       "notes": "",
       "connection_status": "disconnected",
-      "connection_provider": "instagrapi",
+      "connection_provider": "graph_api",
       "brand_complete": false,
       "created_at": "2026-11-23T08:12:40Z",
       "updated_at": "2026-11-23T08:12:40Z"
@@ -175,7 +175,7 @@ Response `200`: the updated account object.
 | Case | HTTP | Code | Notes |
 | --- | --- | --- | --- |
 | Operator sends an admin-only field | 403 | `permission_denied` | Nothing saved |
-| `publishing_enabled: true` while not connected | 409 | `instagram_session_required` | |
+| `publishing_enabled: true` while the connection is not `connected` or `expiring` | 409 | `instagram_not_connected` | |
 | `handle` change while connected | 409 | `invalid_transition` | `details.status` is the connection status and `details.reason` is `"connection_not_disconnected"` |
 | Rule value out of range | 400 | `validation_error` | Path such as `posting_rules.min_gap_minutes` |
 | Unknown key in `autopilot` or `posting_rules` | 400 | `validation_error` | Path such as `autopilot.publish` / `invalid` |
@@ -364,7 +364,7 @@ None.
 
 | Control | Detail |
 | --- | --- |
-| Publishing | `Switch`, label "Publish to Instagram". Help: "When off, nothing is sent to Instagram and due posts wait." Turning on asks `Modal.confirm`: "Turn on publishing for @{handle}? Scheduled posts will be sent to Instagram at their times." Disabled with the tooltip "Connect the account first" when the connection is not `connected` (and the provider is not `manual`). |
+| Publishing | `Switch`, label "Publish to Instagram". Help: "When off, nothing is sent to Instagram and due posts wait." Turning on asks `Modal.confirm`: "Turn on publishing for @{handle}? Scheduled posts will be sent to Instagram at their times." Disabled with the tooltip "Connect the account first" when the connection is not `connected` or `expiring`. |
 | Autopilot | Three `Switch`es: "Confirm selection automatically", "Approve briefs automatically", "Approve scripts automatically", each with one line explaining what a person no longer does. |
 | Posting rules | Four `InputNumber`s: "Minimum gap between posts (minutes)", "Reels and feed posts per day", "Stories per day", "Automatic revisions before human review". |
 
@@ -376,7 +376,7 @@ None.
 2. Given an existing handle, when an admin adds it again in any letter case, then the form shows "This is already in use." under the handle field.
 3. Given an operator, when they open Settings → Accounts, then there is no "Add account" button, and `POST /accounts/` returns `403 permission_denied`.
 4. Given an operator, when they `PATCH` `{"display_name": "X", "publishing_enabled": true}`, then the response is `403 permission_denied` and the display name is unchanged.
-5. Given a disconnected account on the `instagrapi` provider, when an admin turns on publishing, then the API returns `409 instagram_session_required` and the switch is disabled in the panel with its tooltip.
+5. Given a disconnected account on the `graph_api` provider, when an admin turns on publishing, then the API returns `409 instagram_not_connected` and the switch is disabled in the panel with its tooltip.
 6. Given an active account with publishing on, when an admin archives it, then `status` is `archived`, `publishing_enabled` is false, and it disappears from the switcher.
 7. Given `posting_rules.min_gap_minutes = 5`, when saved, then the API returns `validation_error` on `posting_rules.min_gap_minutes` and the field shows the error.
 8. Given a `PATCH` with `{"autopilot": {"brief": true}}`, when saved, then `selection` and `script` keep their previous values.
@@ -393,8 +393,8 @@ None.
 
 | ID | Task | Detail | Est. |
 | --- | --- | --- | --- |
-| E00-S03-BE1 | Models and migration | `InstagramAccount`, `BrandProfile`, `AccountConnection` in `apps/accounts/models.py` with choices, defaults and JSON validators (Pydantic models for `autopilot`, `posting_rules`, `colors`, `fonts`). `services.create_account()` creating the three rows in one transaction. Register in Django admin (connection secrets excluded). Model tests. | 0.5 |
-| E00-S03-BE2 | Account endpoints | `AccountViewSet` (list, create, retrieve, partial update; no delete) with filters, handle normalisation, merge semantics for JSON fields, admin-only field check, the publishing and handle transition rules, archive side effect, computed fields. Add `invalid_transition` and `instagram_session_required` messages to `apps/core/errors.py` with support for `error.details`. API tests for every error row. | 0.75 |
+| E00-S03-BE1 | Models and migration | `InstagramAccount`, `BrandProfile`, `AccountConnection` in `apps/accounts/models.py` with choices, defaults and JSON validators (Pydantic models for `autopilot`, `posting_rules`, `colors`, `fonts`). `services.create_account()` creating the three rows in one transaction. Register in Django admin (`access_token_encrypted` excluded). Model tests. | 0.5 |
+| E00-S03-BE2 | Account endpoints | `AccountViewSet` (list, create, retrieve, partial update; no delete) with filters, handle normalisation, merge semantics for JSON fields, admin-only field check, the publishing and handle transition rules, archive side effect, computed fields. Add `invalid_transition` and `instagram_not_connected` messages to `apps/core/errors.py` with support for `error.details`. API tests for every error row. | 0.75 |
 | E00-S03-BE3 | Brand profile, logo and fonts | Brand `GET`/`PUT` with all limits, hashtag normalisation, contrast warning, `complete`. Logo upload with type, size, dimension and SVG safety checks, stored under `accounts/{id}/brand/`. Font registry `apps/core/fonts/registry.py` plus font files and `GET /fonts/` served from static files. `openapi.yaml` updated for all endpoints in this story. API tests. | 0.75 |
 
 ### Frontend

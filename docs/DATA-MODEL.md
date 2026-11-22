@@ -641,7 +641,7 @@ One row per item. A `cancelled` row left by `withdraw` is reused when the item i
 | `content_version` | FK | The exact version that passed |
 | `format` | `Format` | |
 | `scheduled_at` | datetime | |
-| `status` | enum | `scheduled`, `publishing`, `verifying`, `published`, `failed`, `cancelled` |
+| `status` | enum | `scheduled`, `publishing`, `verifying`, `published`, `failed`, `cancelled`. `verifying` covers both a parked attempt waiting for Instagram to finish processing the container and a check after an ambiguous send (E08-S03, E08-S04) |
 | `delivery` | enum | `provider` (default; sent by the worker) or `manual` (posted by hand). Re-checked at send time: a capability that turned false switches it to `manual` |
 | `blocked_reason` | enum, null | `publishing_paused`, `connection_problem`, `daily_limit` |
 | `attempt_count` | int | Sends that used the retry budget; `PublishAttempt.number` counts every row |
@@ -668,7 +668,7 @@ One row per item. A `cancelled` row left by `withdraw` is reused when the item i
 | `started_at` | datetime | |
 | `finished_at` | datetime, null | Null while running |
 | `outcome` | enum, null | `success`, `verified_live`, `retryable_error`, `fatal_error`, `ambiguous`; null while running |
-| `error_code` / `error_message` | text, null | Codes include `token_invalid`, `permission_missing`, `rate_limited`, `asset_corrupt`, `caption_too_long`, `timeout`, `lease_expired` |
+| `error_code` / `error_message` | text, null | Codes include `token_invalid`, `permission_missing`, `rate_limited`, `quota_exceeded`, `not_supported`, `media_rejected`, `unsupported_media`, `asset_missing`, `caption_too_long`, `transient_error`, `timeout`, `container_timeout`, `read_back_failed`, `lease_expired`, `version_changed` (E08-S03 and E08-S04 define each) |
 | `verification` | JSON, null | `{"pre_story_ids": [...], "checks": [{"at", "method", "container_status", "window_start", "listed", "candidates", "result", "remote_media_id", "remote_shortcode", "timestamp"}], "final_check_pending": bool}`; `method` is `container_status`, `media_list` or `active_stories`; `container_status` appears only for that method, `window_start`, `listed` and `candidates` only for the two list methods, and the remote fields only on a match |
 
 ## 10. analytics (steps 09–10)

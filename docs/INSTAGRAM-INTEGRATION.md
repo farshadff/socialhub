@@ -56,12 +56,12 @@ One Meta app serves every account. E00-S04's spike sets it up in week 1:
 1. An admin clicks "Connect with Instagram" on the account's Connection tab. `POST /api/v1/accounts/{id}/connection/connect/` creates a random `state`, stores `{account_id, user_id}` under it in Redis for 10 minutes, and returns the authorize URL: `https://www.instagram.com/oauth/authorize` with `client_id`, `redirect_uri`, `response_type=code`, `scope` (the three permissions) and `state` **(confirm the exact URL in setup)**.
 2. The browser opens the URL. The account owner signs in to that Instagram account and approves.
 3. Instagram redirects to `GET /api/v1/instagram/oauth/callback/?code=…&state=…`. This endpoint is public. It:
-   - rejects an unknown or expired `state` (`oauth_state_invalid`);
+   - rejects an unknown or expired `state` (`oauth_state_invalid`); with no account to return to, it redirects to `/settings/accounts?connect=error&code=oauth_state_invalid`;
    - exchanges the code for a short-lived token (`POST https://api.instagram.com/oauth/access_token`), then exchanges that for a long-lived token (`GET https://graph.instagram.com/access_token?grant_type=ig_exchange_token`). Both calls happen server-side with the app secret;
    - reads `GET /me?fields=user_id,username,account_type,name,profile_picture_url` and the granted permissions;
    - requires the username to equal the account's `handle` (`account_mismatch`) and the account type to be professional (`not_professional`);
    - stores the token encrypted, with its expiry and scopes, sets the connection `connected` and records capabilities (section 7);
-   - redirects the browser to `/settings/accounts/{id}?tab=connection&connect=success`, or `&connect=error&code={code}` on failure.
+   - redirects the browser to `{SOCIALHUB_PANEL_URL}/settings/accounts/{id}?tab=connection&connect=success`, or `&connect=error&code={code}` on failure. (Locally the panel runs on port 5173 and the API on 8000, hence the separate setting.)
 4. A user who declines on Instagram's page comes back with an `error` parameter; the callback redirects with `code=oauth_denied`.
 
 ### Token lifecycle
@@ -192,14 +192,14 @@ Adapters translate Graph API errors into these. `apps.instagram.services.report_
 
 | Error | Graph API source | What the caller does |
 | --- | --- | --- |
-| `TokenInvalid` | Error code 190 (expired, revoked or invalid token) | Connection `needs_attention`; publishing is blocked with `connection_problem`; the attempt is not counted |
+| `TokenInvalid` | Error code 190 (expired, revoked or invalid token), or a rejected code or token on the OAuth and token endpoints | Connection `needs_attention`; publishing is blocked with `connection_problem`; the attempt is not counted |
 | `PermissionMissing` | Codes 10 and 200–299 | Connection `needs_attention`; capabilities recomputed; attempt not counted |
-| `RateLimited` | Codes 4, 17, 32, 613; carries `retry_after_seconds` when known | Back off; attempt not counted |
+| `RateLimited` | Codes 4, 17, 32, 613; `retry_after_seconds` taken from `estimated_time_to_regain_access` when present | Back off; attempt not counted |
 | `QuotaExceeded` | Publishing limit reached (code 9, subcode 2207042 **(confirm in setup)**), or `quota_usage >= quota_total` before sending | Publication blocked with `daily_limit` until the window frees up |
 | `MediaRejected` | Container `status_code = ERROR`, or a media error on create | Fatal for this version; review task |
-| `TransientError` | Codes 1 and 2, HTTP 5xx, connection errors | Retry with backoff. During `media_publish` it is treated as ambiguous: verify first |
+| `TransientError` | Codes 1 and 2, HTTP 5xx, connection errors, and any error not listed in this table | Retry with backoff. During `media_publish` it is treated as ambiguous: verify first |
 | `AmbiguousResult` | Timeout or connection loss during `media_publish` | Verify before any retry (section 5) |
-| `NotFound` | Object does not exist (deleted post, expired story) | Metrics: checkpoint skipped (`media_not_found` or `expired`). Do not retry |
+| `NotFound` | Object does not exist (deleted post, expired story): code 100 with subcode 33, or HTTP 404 | Metrics: checkpoint skipped (`media_not_found` or `expired`). Do not retry |
 | `NotSupported` | Raised by the `manual` provider, or a capability is false | Publishing switches to manual delivery (E08-S03) |
 | `AccountBusy` | Raised by `account_session` when the account lock is not free within `wait_seconds` | Publishing releases its claim and retries a minute later without counting an attempt (E08-S03); metric collection skips the account this cycle (E09-S01); interactive jobs fail with `rate_limited` |
 
@@ -215,7 +215,7 @@ Connection error codes returned to the panel (callback redirect `code`, or job `
 
 | Provider | Purpose | Notes |
 | --- | --- | --- |
-| `graph_api` | Default for real accounts | Plain HTTPS calls with `httpx` to the pinned Graph API version; no third-party Instagram SDK. Timeouts 15 s per call (60 s for container creation). |
+| `graph_api` | Default for real accounts | Plain HTTPS calls with `httpx` to the pinned Graph API version; no third-party Instagram SDK (`respx` mocks it in tests). Timeouts 15 s per call (60 s for container creation). Tokens are never written to logs; if a token has to travel in a query string, it is redacted. |
 | `manual` | Fallback that always works | Connecting sets the connection `connected` at once with every capability false. "Publishing" marks the publication as waiting for the operator, who downloads the asset and caption, posts by hand and pastes the link. Metrics are typed in. Publishing and analytics methods raise `NotSupported`. |
 | `fake` | Local development and tests | Deterministic, scripted; described below. |
 
@@ -233,6 +233,7 @@ Adding a second adapter, `graph_api_fb`, on `graph.facebook.com` with Facebook L
 | --- | --- | --- |
 | `SOCIALHUB_META_APP_ID` | Meta app ID | none |
 | `SOCIALHUB_META_APP_SECRET` | Meta app secret; never logged | none |
+| `SOCIALHUB_PANEL_URL` | Panel origin the OAuth callback redirects the browser back to | `http://localhost:5173`; hosted `https://{SOCIALHUB_DOMAIN}` |
 | `SOCIALHUB_META_REDIRECT_URI` | OAuth redirect URI registered on the app | `http://localhost:8000/api/v1/instagram/oauth/callback/` |
 | `SOCIALHUB_IG_API_VERSION` | Pinned Graph API version, set from the spike | none; required for `graph_api` |
 | `SOCIALHUB_IG_HTTP_PROXY` | Optional egress proxy for all Instagram traffic | none |
@@ -245,7 +246,7 @@ Adding a second adapter, `graph_api_fb`, on `graph.facebook.com` with Facebook L
 
 ## 10. Capability record
 
-`verify` fills `AccountConnection.capabilities` from the granted permissions and account type; `SOCIALHUB_IG_CAPABILITY_OVERRIDES` is applied last. The rest of the product reads it instead of assuming:
+`verify` fills `AccountConnection.capabilities` from the granted permissions and account type; `SOCIALHUB_IG_CAPABILITY_OVERRIDES` is applied last. Connecting requires only `instagram_business_basic`; if the owner declines the publish or insights permission, the account still connects with those capabilities false. The rest of the product reads it instead of assuming:
 
 | Capability | True when | If false |
 | --- | --- | --- |

@@ -55,7 +55,7 @@ The scaffold's provider guard in `backend/config/settings.py` is removed by E00-
    | `target_type` | The kind of record the job works on, for example `content_item`, `account_connection`, `plan`, `system` |
    | `conflicts_with` | Other kinds that may not run at the same time on the same target. The kind always conflicts with itself. |
 
-   Example used by E00-S04: `instagram.login`, `instagram.challenge` and `instagram.verify` each list the other two in `conflicts_with`.
+   Example used by E00-S04: `instagram.verify` and `instagram.refresh_token` list each other in `conflicts_with`.
 2. The default timeout when a story does not set one is 1,800 s (30 minutes) on every queue. Owning stories register these kinds with these timeouts, which this story's tests assert:
 
    | Kind | Timeout |
@@ -78,7 +78,7 @@ The scaffold's provider guard in `backend/config/settings.py` is removed by E00-
    3. creates the `JobRun` with status `queued`, `queue`, `request_id`, `created_by` and `celery_task_id` equal to the job ID;
    4. sets `active_job` on the target when the target is registered with one (rule 4);
    5. enqueues the task after the transaction commits (`transaction.on_commit`) with `apply_async(args=[str(job.id)], kwargs=payload or {}, queue=queue, task_id=str(job.id), soft_time_limit=timeout, time_limit=timeout + 60)`.
-6. `payload` holds task arguments that are not on the target (for example `{"feedback": "Shorter hook"}`). It must be JSON-serialisable and is limited to 16 KB. Secrets never go in `payload`; E00-S04 passes credentials through its encrypted cache hand-off instead.
+6. `payload` holds task arguments that are not on the target (for example `{"feedback": "Shorter hook"}`). It must be JSON-serialisable and is limited to 16 KB. Secrets never go in `payload`; Instagram access tokens stay encrypted on `AccountConnection`, and tasks read them through E00-S04's `account_session`.
 7. The API layer maps `JobInProgress` to `409` with code `job_in_progress` and the active job, serialised as in rule 22, in `error.details.job`. This replaces the `409 state_conflict` wording in API.md's "Long actions" paragraph.
 8. If enqueueing fails after commit (broker down), the job is marked `failed` with `error_code = enqueue_failed`, `active_job` is cleared, and the error is logged with the job ID. The API response has already been sent as `202`, so the panel sees the failure on its first poll.
 9. A partial unique index on (`target_type`, `target_id`, `kind`) where status is `queued` or `running` backs up rule 5 at the database level for the same kind.
@@ -153,8 +153,8 @@ The scaffold's provider guard in `backend/config/settings.py` is removed by E00-
 
     | Value | Storage | Use |
     | --- | --- | --- |
-    | `local` (default) | `FileSystemStorage` at `MEDIA_ROOT` (the `media_data` volume) | Local development and automated tests. Files are served by Django at `/media/` only when `DEBUG` is true. |
-    | `s3` | `storages.backends.s3.S3Storage` from `django-storages` (pinned in `requirements.lock`) | Every hosted environment. Works with AWS S3, MinIO, Cloudflare R2 and other S3-compatible services. |
+    | `local` (default) | `FileSystemStorage` at `MEDIA_ROOT` (the `media_data` volume) | Local development and automated tests. Files are served by Django at `/media/` only when `DEBUG` is true. Meta cannot fetch these files, so real Instagram publishing from a laptop needs an `s3` bucket (rule 30). |
+    | `s3` | `storages.backends.s3.S3Storage` from `django-storages` (pinned in `requirements.lock`) | Every hosted environment. Works with AWS S3, MinIO, Cloudflare R2 and other S3-compatible services. For Instagram publishing the endpoint must be reachable from the internet over HTTPS (rule 30). |
 
     Startup fails with a clear message when `DEBUG` is false and the backend is `local`, because local media has no access control.
 27. Settings for `s3`:
@@ -178,7 +178,13 @@ The scaffold's provider guard in `backend/config/settings.py` is removed by E00-
     | `brand_key(account_id, variant, ext)` | `accounts/{account_id}/brand/logo-{variant}-{8 hex}.{ext}` | `accounts/3/brand/logo-light-9f2c1a7b.png` |
 
     `slug` is the ASCII slug of the filename stem, at most 40 characters; a stem with no ASCII letters or digits (for example a Persian filename) becomes `file`. `ext` is the lowercase extension from the validated type (rule 33), not the uploaded name. `yyyy/mm` comes from `at` in UTC. Because the key contains the asset ID, an asset row is created first and its file saved second, inside one transaction; if the file save fails, the row is rolled back.
-30. `media_url(file_or_key, *, ttl=None) -> str` returns a URL the browser can load: for `local`, `SOCIALHUB_MEDIA_BASE_URL` + key; for `s3` with a public base URL, that base + key; otherwise a presigned GET URL valid for `ttl` (default `SOCIALHUB_MEDIA_URL_TTL_SECONDS`). Serializers use the `MediaURLField` that calls it. The official Instagram provider (later) calls it with a short TTL to give Meta a fetchable URL.
+30. `media_url(file_or_key, *, ttl=None) -> str` returns a URL the browser can load: for `local`, `SOCIALHUB_MEDIA_BASE_URL` + key; for `s3` with a public base URL, that base + key; otherwise a presigned GET URL valid for `ttl` (default `SOCIALHUB_MEDIA_URL_TTL_SECONDS`). Serializers use the `MediaURLField` that calls it.
+
+    **URLs for Meta.** Instagram publishing does not upload files: Meta's servers download each file from a URL Social Hub hands over. `apps.instagram.media.public_url(asset)` (E00-S04) calls `media_url` with `ttl=SOCIALHUB_IG_MEDIA_URL_TTL_SECONDS` (default 7,200 s, separate from the six-hour panel TTL) for the final asset and the reel cover. So, in every hosted environment:
+    - the bucket's endpoint is reachable from the public internet over HTTPS: no IP allow-list, VPN-only or private endpoint, and a certificate Meta trusts. A MinIO service on the internal Docker network does not qualify;
+    - objects stay private (rule 27); the presigned URL alone grants access, or `SOCIALHUB_S3_PUBLIC_BASE_URL` when a public base is configured;
+    - `public_url` raises `ImproperlyConfigured` for a URL that is not `https://`, which is what the `local` backend produces.
+    E00-S04's setup spike publishes a feed image, a reel and two stories from the planned bucket to prove this before the publisher is built.
 31. `local_copy(file_or_key, *, expected_sha256=None)` is a context manager that yields a local `Path` for a stored file:
     - for `s3` it streams the object in 1 MB chunks into a new temporary directory under `SOCIALHUB_WORK_DIR`, checks the SHA-256 when given (mismatch raises `JobError("media_checksum_mismatch")`), and deletes the directory on exit, also on exceptions;
     - for `local` it yields the file's own path without copying.
@@ -482,7 +488,7 @@ It shows `StatusTag kind="job"`, an Ant Design `Progress` bar (`active` while ru
 | `enqueue_failed` | The task couldn't be started. Try again in a minute. |
 | `media_checksum_mismatch` | A stored file looks damaged. Upload it again. |
 
-Stories that introduce job error codes (for example `bad_credentials` in E00-S04) add their text to the same map.
+Stories that introduce job error codes (for example `account_mismatch` in E00-S04) add their text to the same map.
 
 ### Recent jobs — Settings → System, tab "Jobs" (admin)
 
@@ -500,7 +506,7 @@ States: skeleton while loading; `PageError` on failure; operators never see the 
 
 1. Given a registered kind `test.echo` on the `default` queue, when `start_job` is called for content item 88, then a `JobRun` with status `queued`, `queue = default` and `celery_task_id` equal to its ID exists, item 88's `active_job` points to it, and one Celery task is enqueued only after the transaction commits.
 2. Given a `queued` job of kind `test.echo` for item 88, when `start_job("test.echo", target_id=88)` is called again, then `JobInProgress` is raised and the endpoint returns `409 job_in_progress` with that job in `error.details.job`.
-3. Given `instagram.login` is running for connection 1, when `instagram.verify` is started for connection 1, then it is refused with `job_in_progress`; when it is started for connection 2, then it is created.
+3. Given `instagram.refresh_token` is running for connection 1, when `instagram.verify` is started for connection 1, then it is refused with `job_in_progress`; when it is started for connection 2, then it is created.
 4. Given two requests start the same kind for the same target at the same moment, when both commit, then exactly one job exists.
 5. Given a task body that calls `ctx.progress(40, "Checking copy")` and then `ctx.succeed({"qc_run_id": 7})`, when it runs, then the job goes `queued` → `running` → `succeeded` with `progress` 100, `result` `{"qc_run_id": 7}`, `started_at` and `finished_at` set, the item's `active_job` is null, and `job_finished` is sent once.
 6. Given a task body that raises `JobError("render_failed", "Frame 3 overflowed")`, when it runs, then the job is `failed` with that code and detail; given it raises `KeyError`, then the job is `failed` with `server_error`, and the detail contains no traceback.

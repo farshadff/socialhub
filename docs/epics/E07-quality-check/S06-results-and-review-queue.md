@@ -103,7 +103,7 @@ The run action, running state and revision banner on the Checks tab are already 
 | Reject | Item cancelled through the pipeline's cancel service with reason "Rejected in review: {decision_note}" and the given `release_candidate`. The slot is released as in E03-S04 rule 15 (`open` when its time is in the future, otherwise `skipped`). The version stays as it is |
 
 20. Effects for `publish_failed` tasks are delegated to E08-S04 through `publishing.services.recovery.on_review_decision(task, decision, user)`:
-    - Approve calls the retry service (E08-S04 rule 19). Its gates and errors pass through unchanged, for example `409 invalid_transition` with `details.reason = "version_rejected"` when Instagram rejected the media, `409 publishing_disabled`, or `409 instagram_session_required`. On such an error the whole transaction rolls back and the task stays open.
+    - Approve calls the retry service (E08-S04 rule 19). Its gates and errors pass through unchanged, for example `409 invalid_transition` with `details.reason = "version_rejected"` when Instagram rejected the media, `409 publishing_disabled`, `409 instagram_not_connected`, `409 instagram_permission_missing`, or `409 invalid_transition` with `details.reason = "already_live"` when the container already reads `PUBLISHED`. On such an error the whole transaction rolls back and the task stays open.
     - Request changes cancels the failed publication keeping the slot `reserved`, moves the item `failed → needs_revision` and continues as in rule 19.
     - Reject cancels the publication and the item (E08-S04 rule 17).
 21. Effects for `no_slot` tasks: approve schedules (rule 16), item `in_review → approved → scheduled`; reject as in rule 19.
@@ -474,7 +474,7 @@ Errors:
 | Current version differs from the run's version | 409 | `invalid_transition` | `{"status": "open", "reason": "version_changed"}` |
 | Scheduler raised during approval | 409 | `invalid_transition` | `{"status": "open", "reason": "scheduling_failed"}` |
 | A job is active on the item (for example a recheck) | 409 | `job_in_progress` | `{"job": { … }}` |
-| `publish_failed` approve refused by the retry service | 409 | as returned by E08-S04 | for example `invalid_transition` with `{"reason": "version_rejected"}`, `publishing_disabled`, `instagram_session_required` |
+| `publish_failed` approve refused by the retry service | 409 | as returned by E08-S04 | for example `invalid_transition` with `{"reason": "version_rejected"}` or `{"reason": "already_live"}`, `publishing_disabled`, `instagram_not_connected`, `instagram_permission_missing` |
 
 Example of a resolved-task conflict:
 

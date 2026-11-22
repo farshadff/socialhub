@@ -44,7 +44,7 @@ Scheduling is automatic (E08-S01), so most weeks the operator only looks. The ca
 | `reschedule` | `status = scheduled`, not leased, `attempt_count = 0` |
 | `cancel` | `status` is `scheduled` (not leased) or `failed` |
 | `publish_now` | `status = scheduled`, not leased, `delivery = provider` (E08-S03) |
-| `retry` | `status = failed` (E08-S04) |
+| `retry` | `status = failed` and `container_status` is not `PUBLISHED` (E08-S04; a published container means the post already exists) |
 | `mark_published` | `status` is `scheduled`, `failed`, or `verifying` without an active lease (E08-S04) |
 
 "Leased" means `lease_expires_at` is in the future.
@@ -118,8 +118,11 @@ Permission: signed in.
       "max_attempts": 3,
       "next_attempt_at": null,
       "full_caption": "سه اشتباه رایج در خرید خانه اول که می‌شود از آن‌ها دور ماند.\n\n#خانه_اول #مشاوره_املاک",
-      "remote_media_pk": null,
-      "remote_media_code": null,
+      "remote_container_id": null,
+      "container_status": null,
+      "container_created_at": null,
+      "remote_media_id": null,
+      "remote_shortcode": null,
       "permalink": null,
       "published_at": null,
       "published_via": null,
@@ -152,8 +155,11 @@ Permission: signed in.
       "max_attempts": 3,
       "next_attempt_at": null,
       "full_caption": "بازار آبان در یک نگاه.\n\n#بازار_مسکن",
-      "remote_media_pk": "3498761234567890123",
-      "remote_media_code": "DCx1AbCdEfG",
+      "remote_container_id": "17951234567012345",
+      "container_status": "PUBLISHED",
+      "container_created_at": "2026-11-21T08:30:09Z",
+      "remote_media_id": "18047391520683214",
+      "remote_shortcode": "DCx1AbCdEfG",
       "permalink": "https://www.instagram.com/p/DCx1AbCdEfG/",
       "published_at": "2026-11-21T08:30:41Z",
       "published_via": "provider",
@@ -181,9 +187,9 @@ Same object plus `attempts`:
     {
       "id": 61,
       "number": 1,
-      "provider": "instagrapi",
+      "provider": "graph_api",
       "started_at": "2026-11-21T08:30:07Z",
-      "finished_at": "2026-11-21T08:30:41Z",
+      "finished_at": "2026-11-21T08:30:43Z",
       "outcome": "success",
       "error_code": null,
       "error_message": null,
@@ -332,7 +338,7 @@ Layout: `PageContainer` titled "Calendar" with the description "Slots and public
 | Format | Icon with text: Reel, Story, Feed post |
 | Title | Item title through `ContentText`, one line, ellipsis. For an empty slot: "Open slot" in secondary text |
 | Status | `StatusTag` of the publication status, or of the item status for a reserved slot, or "Open" for an empty slot |
-| Flags | Tag "Publishing off", "Session problem" or "Daily limit" when `blocked_reason` is set; tag "Post by hand" when `delivery = manual`; tag "Retry 2 of 3" when `attempt_count > 0` and status is `scheduled` |
+| Flags | Tag "Publishing off", "Connection problem" or "Daily limit" when `blocked_reason` is `publishing_paused`, `connection_problem` or `daily_limit`; tag "Post by hand" when `delivery = manual`; tag "Retry 2 of 3" when `attempt_count > 0` and status is `scheduled` (E08-S04 adds "Processing" and "Verifying") |
 | Thumbnail | 40 px, cropped to the format's aspect ratio, when `thumbnail_url` exists |
 
 Clicking a card opens the entry drawer. An open slot's card links to `/selection` ("Fill this slot"). Today's column has a highlighted header. Days outside the selected plan week are not shown; the view always shows exactly one week.
@@ -343,7 +349,7 @@ Clicking a card opens the entry drawer. An open slot's card links to `/selection
 
 - Header: item title, `StatusTag`, link "Open item" to `/content/:id?tab=publishing`.
 - `MediaPreview` of the final asset in the format's aspect ratio.
-- `ProDescriptions`: Scheduled for, Slot ("Tue 19:00 slot" or "No slot"), Delivery, Attempts, Blocked reason (only when set), Published at and Link (only when published).
+- `ProDescriptions`: Scheduled for, Slot ("Tue 19:00 slot" or "No slot"), Delivery ("Sent by Social Hub" for `provider`, "Post by hand" for `manual`; E08-S04 explains why on the post-by-hand card), Attempts, Blocked reason (only when set), Published at and Link (only when published).
 - Caption block: the `full_caption` through `ContentText`, with a "Copy caption" button.
 - Actions, shown only when listed in `allowed_actions`: "Reschedule", "Cancel publication", and the actions added by E08-S03 ("Publish now") and E08-S04 ("Retry", "Mark as published").
 
