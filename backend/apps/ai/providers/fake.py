@@ -1,172 +1,191 @@
-"""Deterministic fake text provider (E00-S05 rules 30–33, AI-INTEGRATION.md section 7).
+"""Deterministic fake providers (E00-S05 rules 30-32, AI-INTEGRATION.md section 7).
 
-What it returns, in order:
-1. an in-process override from ``fake_text.set(task, value)`` (unit tests). ``value`` is the
-   data to return, an exception instance to raise, or a callable ``f(variables)`` returning
-   data (for computed fakes such as ``selection.score_goal_fit``);
-2. a variant chosen by the ``_fixture`` variable, or by a marker ``[fixture:<name>]`` found in
-   any string variable, loading ``fixture.<name>.json``;
-3. ``fixture.json``.
+Text output is chosen in this order:
 
-A fixture ``{"_raise": "refused" | "<provider error detail>"}`` raises instead of answering.
-A string value ``"@a.0.b"`` in a fixture is replaced by that path in the call's variables
-(``"@signals.0.id"`` → the first input signal's id), so fixtures can point at real rows. When
-the path does not exist the value after ``|`` is used (``"@existing_topics.0.title|Coffee"``),
-or ``-1`` when there is none.
-For tasks without a schema a fixture is either a string or ``{"text": ..., "citations": [...]}``.
-With web search and no citations in the fixture, two fixed ``example.com`` citations are returned.
+1. with `SOCIALHUB_TESTING_HOOKS=true`, a shared override for the task stored in the cache
+   (Redis outside tests) by the E11-S03 test hooks: `{"variant": "<name>"}`, `{"data": ...}` or
+   `{"error": "refused" | "<ProviderError detail>"}` (see `set_shared_override`);
+2. an in-process override from `fake_text.set(task, data_or_exception)` (unit tests);
+3. a variant named by the `_fixture` variable, else by a `[fixture:<name>]` marker inside any
+   string variable;
+4. the default.
+
+For 3 and 4, a task's `fake.py` with `build(variables, variant) -> dict` wins; otherwise
+`fixture.<variant>.json` (or `fixture.json`) is returned. Text tasks return
+`{"text", "citations"}` (or a plain string); schema tasks return a dict that the gateway
+validates against the schema. A `fake.py` may raise `ProviderRefused("refused")`.
 """
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import re
-from typing import Any
+import threading
 
-from ..errors import OutputInvalid, ProviderError, ProviderRefused
-from ..registry import task_dir
-from ..results import ProviderResponse, TextRequest
+from django.conf import settings
+from django.core.cache import cache
 
-_MARKER = re.compile(r"\[fixture:([a-z0-9_.-]+)\]")
-DEFAULT_CITATIONS = [
-    {"url": "https://example.com/fake-result-1", "title": "Fake search result one"},
-    {"url": "https://example.com/fake-result-2", "title": "Fake search result two"},
-]
+from .. import registry
+from ..errors import AIError, ProviderError, ProviderRefused
+from .base import ImageRequest, ImageResponse, TextRequest, TextResponse
+
+FAKE_MODEL = "fake"
+SHARED_KEY = "socialhub:ai:fake:{task}"
+MARKER = re.compile(r"\[fixture:([A-Za-z0-9_.-]+)\]")
+WEB_SEARCH_CITATIONS = (
+    {"url": "https://example.com/fake-search/1", "title": "Example search result one"},
+    {"url": "https://example.com/fake-search/2", "title": "Example search result two"},
+)
 
 
-class _FakeOverrides:
+class FakeOverrides:
+    """In-process fake output per task, for unit tests: `fake_text.set(task, value)`.
+
+    `value` is the output itself (a dict valid against the task's schema, or text), or an
+    exception instance (for example `ProviderRefused()`) to raise. Use `clear()` in teardown.
+    """
+
     def __init__(self):
-        self._overrides: dict[str, Any] = {}
-        self._defaults: dict[str, Any] = {}
+        self._values: dict[str, object] = {}
+        self._lock = threading.Lock()
 
-    def set(self, task: str, value: Any) -> None:
-        self._overrides[task] = value
-
-    def set_default(self, task: str, value: Any) -> None:
-        """A computed fake registered by an app (for example in ``AppConfig.ready``).
-
-        Used when no ``set`` override exists; ``clear()`` does not remove it.
-        """
-        self._defaults[task] = value
+    def set(self, task: str, value) -> None:
+        with self._lock:
+            self._values[task] = value
 
     def clear(self, task: str | None = None) -> None:
-        if task is None:
-            self._overrides.clear()
-        else:
-            self._overrides.pop(task, None)
+        with self._lock:
+            if task is None:
+                self._values.clear()
+            else:
+                self._values.pop(task, None)
 
-    def get(self, task: str):
-        if task in self._overrides:
-            return self._overrides[task]
-        return self._defaults.get(task, _MISSING)
-
-
-_MISSING = object()
-fake_text = _FakeOverrides()
+    def get(self, task: str) -> tuple[bool, object]:
+        with self._lock:
+            if task in self._values:
+                return True, self._values[task]
+        return False, None
 
 
-def _find_variant(value) -> str | None:
+fake_text = FakeOverrides()
+
+
+def set_shared_override(task: str, value: dict | None, timeout: int | None = None) -> None:
+    """Store (or with None, remove) the shared override read when testing hooks are on."""
+    key = SHARED_KEY.format(task=task)
+    if value is None:
+        cache.delete(key)
+    else:
+        cache.set(key, json.dumps(value), timeout)
+
+
+def _shared_override(task: str) -> dict | None:
+    if not getattr(settings, "SOCIALHUB_TESTING_HOOKS", False):
+        return None
+    raw = cache.get(SHARED_KEY.format(task=task))
+    if not raw:
+        return None
+    return json.loads(raw) if isinstance(raw, str) else raw
+
+
+def _strings(value):
     if isinstance(value, str):
-        match = _MARKER.search(value)
-        return match.group(1) if match else None
-    if isinstance(value, dict):
+        yield value
+    elif isinstance(value, dict):
         for item in value.values():
-            found = _find_variant(item)
-            if found:
-                return found
-    if isinstance(value, (list, tuple)):
+            yield from _strings(item)
+    elif isinstance(value, (list, tuple)):
         for item in value:
-            found = _find_variant(item)
-            if found:
-                return found
-    return None
+            yield from _strings(item)
 
 
-def select_variant(variables: dict) -> str | None:
+def variant_from(variables: dict) -> str | None:
+    """`_fixture` when given, else the first `[fixture:<name>]` marker in a string variable."""
     explicit = variables.get("_fixture")
     if explicit:
         return str(explicit)
-    return _find_variant(variables)
+    for text in _strings({k: v for k, v in variables.items() if k != "_fixture"}):
+        match = MARKER.search(text)
+        if match:
+            return match.group(1)
+    return None
 
 
-def _lookup(variables, path: str):
-    current = variables
-    for part in path.split("."):
-        if isinstance(current, (list, tuple)) and part.isdigit():
-            current = current[int(part)]
-        elif isinstance(current, dict):
-            current = current[part]
-        else:
-            raise KeyError(path)
-    return current
+def _error(detail: str) -> AIError:
+    return ProviderRefused() if detail == "refused" else ProviderError(detail)
 
 
-def resolve_references(value, variables: dict):
-    if isinstance(value, str) and value.startswith("@") and len(value) > 1:
-        path, _, fallback = value[1:].partition("|")
-        try:
-            return _lookup(variables, path)
-        except (KeyError, IndexError, TypeError):
-            return fallback if fallback else -1
-    if isinstance(value, dict):
-        return {key: resolve_references(item, variables) for key, item in value.items()}
-    if isinstance(value, list):
-        return [resolve_references(item, variables) for item in value]
-    return value
+def _default_output(task: str, variables: dict, variant: str | None):
+    build = registry.fake_builder(task)
+    if build is not None:
+        return build(variables, variant)
+    return registry.fixture(task, variant)
 
 
-def load_fixture(task: str, variant: str | None = None):
-    directory = task_dir(task)
-    path = directory / (f"fixture.{variant}.json" if variant else "fixture.json")
-    if variant and not path.exists():
-        path = directory / "fixture.json"
-    with path.open(encoding="utf-8") as handle:
-        return json.load(handle)
+def select_output(task: str, variables: dict):
+    """The fake output for one call, or an exception instance to raise."""
+    shared = _shared_override(task)
+    if shared is not None:
+        if "data" in shared:
+            return shared["data"]
+        if "error" in shared:
+            return _error(str(shared["error"]))
+        if "variant" in shared:
+            return _default_output(task, variables, shared["variant"] or None)
+    found, value = fake_text.get(task)
+    if found:
+        return value
+    return _default_output(task, variables, variant_from(variables))
 
 
 class FakeTextProvider:
     name = "fake"
 
-    def configured(self) -> bool:
-        return True
-
-    def complete(self, request: TextRequest) -> ProviderResponse:
-        override = fake_text.get(request.task)
-        if override is not _MISSING:
-            if isinstance(override, BaseException):
-                raise override
-            raw = override(request.variables) if callable(override) else override
-        else:
-            raw = load_fixture(request.task, select_variant(request.variables))
-            raw = resolve_references(raw, request.variables)
-
-        if isinstance(raw, dict) and "_raise" in raw:
-            if raw["_raise"] == "refused":
-                raise ProviderRefused()
-            raise ProviderError(str(raw["_raise"]))
-
-        citations: list[dict[str, str]] = []
+    def text(self, request: TextRequest) -> TextResponse:
+        output = select_output(request.task, request.variables)
+        if isinstance(output, BaseException):
+            raise output
+        if isinstance(output, type) and issubclass(output, BaseException):
+            raise output()
+        response = TextResponse(model=FAKE_MODEL, stop_reason="end_turn")
+        citations = None
         if request.schema is not None:
-            try:
-                data = request.schema.model_validate(raw)
-            except Exception as exc:  # pydantic.ValidationError
-                raise OutputInvalid() from exc
-            text = json.dumps(raw, ensure_ascii=False)
+            response.data = output
+            response.text = json.dumps(output, ensure_ascii=False, sort_keys=True, default=str) \
+                if not isinstance(output, str) else output
+        elif isinstance(output, dict) and "text" in output:
+            response.text = str(output["text"])
+            citations = output.get("citations")
+        elif isinstance(output, str):
+            response.text = output
         else:
-            if isinstance(raw, dict):
-                text = str(raw.get("text", ""))
-                citations = list(raw.get("citations", DEFAULT_CITATIONS if request.web_search else []))
-            else:
-                text = str(raw)
-                citations = list(DEFAULT_CITATIONS) if request.web_search else []
-            data = text
-        units = {"attempts": 1}
-        if request.web_search is not None:
-            units["web_searches"] = 1 if citations else 0
-        return ProviderResponse(
-            data=data,
-            model="fake",
-            citations=citations,
-            units=units,
-            raw_text=text,
-        )
+            response.text = json.dumps(output, ensure_ascii=False, sort_keys=True, default=str)
+        if citations is None and request.web_search is not None:
+            citations = [dict(c) for c in WEB_SEARCH_CITATIONS]
+        response.citations = list(citations or [])
+        return response
+
+
+def solid_png(size: str, seed: str) -> bytes:
+    """A PNG of `size` ("WxH") filled with a colour derived from `seed`'s SHA-256."""
+    from PIL import Image
+
+    width, height = (int(part) for part in size.lower().split("x"))
+    digest = hashlib.sha256(seed.encode("utf-8")).digest()
+    image = Image.new("RGB", (width, height), tuple(digest[:3]))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+class FakeImageProvider:
+    name = "fake"
+
+    def image(self, request: ImageRequest) -> ImageResponse:
+        found, value = fake_text.get(request.task)
+        if found and isinstance(value, BaseException):
+            raise value
+        return ImageResponse(content=solid_png(request.size, request.prompt), mime="image/png",
+                             model=FAKE_MODEL)

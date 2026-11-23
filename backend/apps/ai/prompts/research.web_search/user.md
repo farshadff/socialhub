@@ -1,10 +1,7 @@
-Search query: {{ query }}
+Query: {{ query }}
 Date window: {{ window_start }} to {{ window_end }}
-Account content language: {{ content_language }}
-Audience: {{ audience_summary }}
-Content pillars: {{ content_pillars | tojson }}
-{% if objective %}
-This week's objective: {{ objective }}
+{% if audience_summary %}Audience: {{ audience_summary }}
+{% endif %}{% if content_pillars %}Content pillars: {{ content_pillars | join(", ") }}
+{% endif %}{% if objective %}This week's objective: {{ objective }}
 {% endif %}
-
-Find what is new on this query inside the date window and list the findings as described.
+List the findings, one per paragraph, each with URL, publisher, date and gist.

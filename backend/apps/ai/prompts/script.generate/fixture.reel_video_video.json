@@ -1,0 +1,83 @@
+{
+  "scenario": "ریلز از مرتب کردن یک میز واقعی در پنج دقیقه، با سه نما و متن روی تصویر، و پایان با دعوت به ذخیره.",
+  "hook": "پنج دقیقه، یک میز، چهار حرکت",
+  "duration_seconds": 20,
+  "shots": [
+    {
+      "index": 1,
+      "duration_seconds": 6,
+      "type": "footage",
+      "description": "میز شلوغ از بالا و شروع تایمر.",
+      "on_screen_text": "پنج دقیقه",
+      "voiceover": "",
+      "asset_hint": "فیلم از بالا از یک میز شلوغ"
+    },
+    {
+      "index": 2,
+      "duration_seconds": 8,
+      "type": "footage",
+      "description": "دست‌ها وسایل را دسته‌بندی و سطح میز را تمیز می‌کنند.",
+      "on_screen_text": "دسته‌بندی کن",
+      "voiceover": "",
+      "asset_hint": "فیلم نزدیک از دسته‌بندی وسایل"
+    },
+    {
+      "index": 3,
+      "duration_seconds": 6,
+      "type": "text",
+      "description": "کارت پایانی با دعوت به ذخیره.",
+      "on_screen_text": "ذخیره کنید",
+      "voiceover": "",
+      "asset_hint": ""
+    }
+  ],
+  "frames": [
+    {
+      "index": 1,
+      "shot_index": 1,
+      "template": "title",
+      "headline": "پنج دقیقه، یک میز",
+      "body": "",
+      "visual_prompt": "",
+      "duration_seconds": 3,
+      "transition": "cut"
+    },
+    {
+      "index": 2,
+      "shot_index": 2,
+      "template": "statement",
+      "headline": "فقط ضروری‌ها روی میز برمی‌گردند",
+      "body": "",
+      "visual_prompt": "",
+      "duration_seconds": 4,
+      "transition": "fade"
+    },
+    {
+      "index": 3,
+      "shot_index": 3,
+      "template": "cta",
+      "headline": "این را ذخیره کنید",
+      "body": "امشب امتحانش کنید",
+      "visual_prompt": "",
+      "duration_seconds": 6,
+      "transition": "fade"
+    }
+  ],
+  "design_notes": {
+    "mood": "آرام و مطمئن؛ مثل یک معلم، نه یک فروشنده.",
+    "color_usage": "پس‌زمینه‌ی روشن برند، رنگ اصلی برای عددها و تأکیدها.",
+    "typography": "فونت تیتر برای جمله‌های اصلی و فونت متن برای توضیح‌ها.",
+    "imagery_style": "عکس با نور طبیعی، بدون چهره، بدون عکس‌های کلیشه‌ای.",
+    "layout": "متن در محدوده‌ی امن و وسط کادر؛ پایین کادر خالی بماند.",
+    "do": [
+      "در هر فریم فقط یک ایده",
+      "رنگ تأکیدی فقط یک بار در هر فریم"
+    ],
+    "dont": [
+      "بیش از دو اندازه‌ی متن در یک فریم",
+      "پس‌زمینه‌ی شلوغ پشت متن"
+    ]
+  },
+  "cta": "این چک‌لیست را ذخیره کنید و امشب امتحانش کنید.",
+  "music_hint": "موسیقی بی‌کلام پرانرژی"
+}

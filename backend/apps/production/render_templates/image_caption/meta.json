@@ -1,0 +1,44 @@
+{
+  "key": "image_caption",
+  "name": "Image with caption",
+  "description": "A picture that fills the frame with a short caption on a panel.",
+  "version": "1",
+  "image_slot": "required",
+  "scrim": "dark",
+  "layouts": [
+    "4x5",
+    "9x16"
+  ],
+  "fields": {
+    "headline": {
+      "required": false,
+      "max_chars": 60,
+      "max_lines": 2,
+      "font": {
+        "4x5": {
+          "max_font": 64,
+          "min_font": 40
+        },
+        "9x16": {
+          "max_font": 72,
+          "min_font": 44
+        }
+      }
+    },
+    "body": {
+      "required": false,
+      "max_chars": 100,
+      "max_lines": 3,
+      "font": {
+        "4x5": {
+          "max_font": 38,
+          "min_font": 28
+        },
+        "9x16": {
+          "max_font": 42,
+          "min_font": 30
+        }
+      }
+    }
+  }
+}

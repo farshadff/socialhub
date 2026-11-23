@@ -1,13 +1,10 @@
-"""Signals other apps subscribe to (E01-S03).
-
-Both are sent with ``send_robust`` after the transaction commits, so a failing receiver
-can neither roll back the status change nor break the response.
-"""
+"""Signals other apps subscribe to (E01-S03)."""
 
 from django.dispatch import Signal
 
-# Arguments: plan
+# Sent after the activation transaction commits. Arguments: plan.
 plan_activated = Signal()
 
-# Arguments: plan, forced (bool), automatic (bool). E10-S02 starts the weekly report from it.
+# Sent after the close transaction commits. Arguments: plan, forced (bool), automatic (bool).
+# E10-S02 listens to it and starts the weekly report job.
 plan_closed = Signal()

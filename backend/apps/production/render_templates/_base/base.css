@@ -1,0 +1,100 @@
+/* Shared reset, type scale and footer. Colours, fonts and safe areas come only from the
+   CSS variables injected by the renderer (E06-S02 rule 5). Logical properties only (rule 9). */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: var(--canvas-width);
+  height: var(--canvas-height);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+html.is-overlay, html.is-overlay body { background: transparent; }
+.canvas {
+  position: relative;
+  width: var(--canvas-width);
+  height: var(--canvas-height);
+  overflow: hidden;
+  background: var(--brand-background);
+  color: var(--brand-text);
+  font-family: var(--font-body);
+}
+.is-overlay .canvas { background: transparent; }
+.has-image .canvas { color: var(--on-image); }
+
+.bg { position: absolute; inset: 0; }
+.bg img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
+.scrim { position: absolute; inset: 0; background: var(--scrim-color); opacity: 0.45; }
+
+/* Everything that carries text, the logo or the handle stays inside the safe area (rule 13).
+   The safe-area bands are physical (Instagram's own interface does not mirror). */
+.frame {
+  position: absolute;
+  inset: 0;
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+  display: flex;
+  flex-direction: column;
+}
+.content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 32px;
+  overflow: hidden;
+}
+
+[data-slot] {
+  text-align: start;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  white-space: pre-line;
+  unicode-bidi: plaintext;
+}
+.headline { font-family: var(--font-heading); font-weight: 700; line-height: 1.35; }
+.body { font-family: var(--font-body); font-weight: 400; line-height: 1.6; }
+
+.accent-bar {
+  inline-size: 120px;
+  block-size: 12px;
+  border-radius: 6px;
+  background: var(--brand-accent);
+  flex: none;
+}
+
+/* text_backdrop render option (rule 14a). */
+.has-backdrop [data-slot] {
+  background: color-mix(in srgb, var(--brand-background) 85%, transparent);
+  color: var(--brand-text);
+  border-radius: 24px;
+  padding: 16px 28px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* Overflow clamp applied by fit.js (rule 12). */
+.is-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding-block-start: 32px;
+  min-block-size: 96px;
+}
+.footer .logo { block-size: 72px; inline-size: auto; max-inline-size: 320px; object-fit: contain; }
+.footer .handle { font-family: var(--font-body); font-weight: 700; font-size: 32px; opacity: 0.85; }
+.layout-9x16 .footer .logo { block-size: 80px; }
+.layout-9x16 .footer .handle { font-size: 36px; }
+
+/* Safe-area test helper: paint text boxes solid so pixels can be checked (test notes). */
+.debug-boxes [data-slot], .debug-boxes .footer .logo, .debug-boxes .footer .handle {
+  background: #ff00ff !important; color: #ff00ff !important; border-radius: 0 !important;
+}
+.debug-boxes .canvas, .debug-boxes .bg, .debug-boxes .scrim { background: #000000 !important; opacity: 1; }
+.debug-boxes .bg img { visibility: hidden; }

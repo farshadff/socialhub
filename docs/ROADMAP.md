@@ -49,7 +49,7 @@ Two supporting epics exist only because the workflow cannot run without them: [E
 - Scheduling: automatic times from the slots and posting rules, a week calendar, reschedule and cancel.
 - Posting by hand: every publication has `delivery = manual`. The panel gives the final asset and the full caption, and "Mark as published" takes the post link.
 - Metrics by hand: metric entry at the evaluation checkpoints and follower entry per day, with reminders on the overview.
-- English, left-to-right operator panel built on Refine with Ant Design (`frontend/`). Content language is set per account (default Persian), and rendering is right-to-left safe.
+- English, left-to-right operator panel built on Umi Max 4, Ant Design 6 and Pro Components (`frontend/`). Content language is set per account (default Persian), and rendering is right-to-left safe.
 
 ### Moved to Phase 2 (Instagram API)
 
@@ -223,7 +223,7 @@ Quality-check outcomes are always automatic, exactly as the PDF states. In Phase
 | Rendered Persian text looks wrong | Assets fail the design check or look unprofessional | Text is rendered by the browser from templates with bundled fonts, never drawn by an image model; a fixed set of right-to-left samples is part of the template tests |
 | AI output quality varies | More revise loops and escalations | Structured outputs with schemas; revise loop capped at two; every prompt is versioned so changes can be compared |
 | Instagram's media limits differ from what the format registry assumes | A posted file is rejected or cropped by the Instagram app | Limits come from Instagram's published specifications; the pilot posts one of each format by hand in R2 and adjusts the registry (E04-S01) |
-| Frontend volume is the bottleneck | R1 and R2 slip | Reuse Refine's `useTable` and `useForm` hooks with Ant Design tables and forms, and the one Social Hub data provider; one item workspace shell with tabs; no custom design work beyond the tokens in [DESIGN-SYSTEM.md](DESIGN-SYSTEM.md) |
+| Frontend volume is the bottleneck | R1 and R2 slip | Reuse the Umi route structure, typed Social Hub API services and shared Pro Components; one item workspace shell with tabs; no custom design work beyond the tokens in [DESIGN-SYSTEM.md](DESIGN-SYSTEM.md) |
 | Phase 1 code makes Phase 2 harder | Rework when the API arrives | Phase 2 adds a delivery route and a metrics source; it changes no Phase 1 table, status or endpoint. The seams are listed in section 2 and section 8 |
 
 ## 7. Decisions needed from the product owner

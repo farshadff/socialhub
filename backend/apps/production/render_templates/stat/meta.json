@@ -1,0 +1,44 @@
+{
+  "key": "stat",
+  "name": "Stat",
+  "description": "One number, set very large, and what it means.",
+  "version": "1",
+  "image_slot": "none",
+  "scrim": "brand",
+  "layouts": [
+    "4x5",
+    "9x16"
+  ],
+  "fields": {
+    "headline": {
+      "required": true,
+      "max_chars": 12,
+      "max_lines": 1,
+      "font": {
+        "4x5": {
+          "max_font": 240,
+          "min_font": 120
+        },
+        "9x16": {
+          "max_font": 280,
+          "min_font": 140
+        }
+      }
+    },
+    "body": {
+      "required": true,
+      "max_chars": 100,
+      "max_lines": 4,
+      "font": {
+        "4x5": {
+          "max_font": 52,
+          "min_font": 32
+        },
+        "9x16": {
+          "max_font": 58,
+          "min_font": 34
+        }
+      }
+    }
+  }
+}

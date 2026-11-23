@@ -1,1 +1,1 @@
-Reply now.
+Reply with the single word: pong

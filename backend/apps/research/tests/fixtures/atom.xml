@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Daily Coffee News</title>
+  <entry><title>Pour-over gear sales rise</title>
+    <link href="https://dailycoffeenews.com/pour-over"/>
+    <id>urn:1</id><updated>{recent}</updated>
+    <content type="html">&lt;p&gt;Retailers report higher sales.&lt;/p&gt;</content></entry>
+</feed>

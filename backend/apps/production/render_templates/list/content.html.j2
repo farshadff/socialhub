@@ -1,0 +1,5 @@
+{% from "_base/slots.j2" import slot with context %}
+{{ slot("headline", headline, "headline", "h1") }}
+<ol class="body list" data-slot="body" data-max-font="{{ fit.body.max_font }}" data-min-font="{{ fit.body.min_font }}" data-max-lines="0">
+{% for item in items %}<li><span class="marker" aria-hidden="true"></span><span class="item-text" dir="auto">{{ item }}</span></li>
+{% endfor %}</ol>

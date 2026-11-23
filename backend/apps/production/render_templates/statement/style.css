@@ -1,0 +1,6 @@
+/* Statement template. Brand values only through CSS variables. */
+.tpl-statement .statement { display: flex; flex-direction: column; gap: 32px; border-inline-start: 14px solid var(--brand-accent); padding-inline-start: 48px; min-height: 0; overflow: hidden; }
+.has-image .tpl-statement .scrim { opacity: 0.72; }
+.has-image .tpl-statement .canvas, .tpl-statement.canvas { }
+.tpl-statement .body { color: var(--brand-secondary); }
+.has-image .tpl-statement .body { color: inherit; opacity: 0.85; }

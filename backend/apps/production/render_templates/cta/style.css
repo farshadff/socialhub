@@ -1,0 +1,11 @@
+/* Call to action template. Brand values only through CSS variables. */
+.tpl-cta .content { align-items: center; }
+.tpl-cta .cta-block { display: flex; flex-direction: column; align-items: center; gap: 32px; min-height: 0; overflow: hidden; max-inline-size: 100%; }
+.tpl-cta [data-slot] { text-align: center; }
+.tpl-cta .cta-rule { inline-size: 160px; block-size: 12px; border-radius: 6px; background: var(--brand-accent); }
+.tpl-cta .footer-large { flex-direction: column; justify-content: center; gap: 20px; padding-block-start: 48px; }
+.tpl-cta .footer-large .logo { block-size: 160px; max-inline-size: 480px; }
+.layout-9x16 .tpl-cta .footer-large .logo { block-size: 180px; }
+.tpl-cta .footer-large .handle { font-size: 44px; opacity: 1; color: var(--brand-primary); }
+.has-image .tpl-cta .footer-large .handle { color: inherit; }
+.has-image .tpl-cta .scrim { opacity: 0.8; }

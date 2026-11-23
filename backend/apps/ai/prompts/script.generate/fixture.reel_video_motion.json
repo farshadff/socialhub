@@ -1,0 +1,121 @@
+{
+  "scenario": "ریلز با یک تایمر پنج‌دقیقه‌ای شروع می‌شود، چهار حرکت مرتب کردن میز را یکی‌یکی نشان می‌دهد و با دعوت به ذخیره‌ی پست تمام می‌شود.",
+  "hook": "قبل از تمام شدن این تایمر، میزت مرتب است.",
+  "duration_seconds": 24,
+  "shots": [
+    {
+      "index": 1,
+      "duration_seconds": 4,
+      "type": "text",
+      "description": "جمله‌ی شروع روی پس‌زمینه‌ی تیره‌ی برند.",
+      "on_screen_text": "قبل از تمام شدن تایمر",
+      "voiceover": "",
+      "asset_hint": ""
+    },
+    {
+      "index": 2,
+      "duration_seconds": 5,
+      "type": "graphic",
+      "description": "عدد پنج دقیقه با یک توضیح کوتاه.",
+      "on_screen_text": "۵ دقیقه",
+      "voiceover": "",
+      "asset_hint": ""
+    },
+    {
+      "index": 3,
+      "duration_seconds": 6,
+      "type": "graphic",
+      "description": "چهار حرکت به ترتیب ظاهر می‌شوند.",
+      "on_screen_text": "چهار حرکت",
+      "voiceover": "",
+      "asset_hint": ""
+    },
+    {
+      "index": 4,
+      "duration_seconds": 5,
+      "type": "graphic",
+      "description": "تصویر یک میز مرتب با یک جمله‌ی کوتاه.",
+      "on_screen_text": "میز مرتب، ذهن آرام",
+      "voiceover": "",
+      "asset_hint": ""
+    },
+    {
+      "index": 5,
+      "duration_seconds": 4,
+      "type": "text",
+      "description": "کارت پایانی با دعوت به اقدام.",
+      "on_screen_text": "ذخیره کنید",
+      "voiceover": "",
+      "asset_hint": ""
+    }
+  ],
+  "frames": [
+    {
+      "index": 1,
+      "shot_index": 1,
+      "template": "title",
+      "headline": "قبل از تمام شدن تایمر، میزت مرتب است",
+      "body": "",
+      "visual_prompt": "",
+      "duration_seconds": 4,
+      "transition": "cut"
+    },
+    {
+      "index": 2,
+      "shot_index": 2,
+      "template": "stat",
+      "headline": "۵ دقیقه",
+      "body": "تمام زمانی که برای یک میز مرتب لازم دارید",
+      "visual_prompt": "",
+      "duration_seconds": 5,
+      "transition": "fade"
+    },
+    {
+      "index": 3,
+      "shot_index": 3,
+      "template": "list",
+      "headline": "چهار حرکت",
+      "body": "خالی کن\nدسته‌بندی کن\nتمیز کن\nبچین",
+      "visual_prompt": "",
+      "duration_seconds": 6,
+      "transition": "slide"
+    },
+    {
+      "index": 4,
+      "shot_index": 4,
+      "template": "image_caption",
+      "headline": "میز مرتب، ذهن آرام",
+      "body": "",
+      "visual_prompt": "Top-down photo of a tidy wooden desk with an open notebook and a cup, soft morning light, muted colours, empty space in the lower half",
+      "duration_seconds": 5,
+      "transition": "fade"
+    },
+    {
+      "index": 5,
+      "shot_index": 5,
+      "template": "cta",
+      "headline": "این پست را ذخیره کنید",
+      "body": "امشب امتحانش کنید",
+      "visual_prompt": "",
+      "duration_seconds": 4,
+      "transition": "fade"
+    }
+  ],
+  "design_notes": {
+    "mood": "آرام و مطمئن؛ مثل یک معلم، نه یک فروشنده.",
+    "color_usage": "پس‌زمینه‌ی روشن برند، رنگ اصلی برای عددها و تأکیدها.",
+    "typography": "فونت تیتر برای جمله‌های اصلی و فونت متن برای توضیح‌ها.",
+    "imagery_style": "عکس با نور طبیعی، بدون چهره، بدون عکس‌های کلیشه‌ای.",
+    "layout": "متن در محدوده‌ی امن و وسط کادر؛ پایین کادر خالی بماند.",
+    "do": [
+      "در هر فریم فقط یک ایده",
+      "رنگ تأکیدی فقط یک بار در هر فریم"
+    ],
+    "dont": [
+      "بیش از دو اندازه‌ی متن در یک فریم",
+      "پس‌زمینه‌ی شلوغ پشت متن"
+    ]
+  },
+  "cta": "این چک‌لیست را ذخیره کنید و امشب امتحانش کنید.",
+  "music_hint": "موسیقی بی‌کلام آرام با ریتم متوسط"
+}

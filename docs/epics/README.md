@@ -2,6 +2,8 @@
 
 One directory per epic. Each directory has a `README.md` for the epic and one file per story. A story file contains the complete specification and its subtasks, so a developer can build from that one file plus the shared references.
 
+The story details preserve upstream product requirements, but the implemented panel uses Umi Max 4, Ant Design 6 and Pro Components as documented in [ARCHITECTURE.md](../ARCHITECTURE.md) and [frontend/AGENTS.md](../../frontend/AGENTS.md). If a story names Refine or Vite-specific paths, keep its product behavior and follow the current stack for implementation.
+
 ## IDs
 
 | Kind | Pattern | Example |

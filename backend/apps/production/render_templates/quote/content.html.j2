@@ -1,0 +1,4 @@
+{% from "_base/slots.j2" import slot with context %}
+<div class="quote-mark" aria-hidden="true">&ldquo;</div>
+{{ slot("headline", headline, "headline quote-text", "blockquote") }}
+{% if body %}<div class="attribution"><span class="attribution-rule" aria-hidden="true"></span>{{ slot("body", body, "body", "span") }}</div>{% endif %}

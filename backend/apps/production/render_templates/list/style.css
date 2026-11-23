@@ -1,0 +1,10 @@
+/* List template. Brand values only through CSS variables. */
+.tpl-list .content { justify-content: flex-start; gap: 48px; padding-block-start: 24px; }
+.layout-9x16 .tpl-list .content { justify-content: center; }
+.tpl-list .list { list-style: none; display: flex; flex-direction: column; gap: 0.7em; counter-reset: item; white-space: normal; }
+.tpl-list .list li { display: flex; align-items: flex-start; gap: 0.6em; counter-increment: item; }
+.tpl-list .marker { flex: none; inline-size: 1.5em; block-size: 1.5em; border-radius: 50%; background: var(--brand-primary); color: var(--on-primary); font-family: var(--font-heading); font-weight: 700; font-size: 0.8em; display: flex; align-items: center; justify-content: center; margin-block-start: 0.15em; }
+.tpl-list .marker::before { content: counter(item); }
+:lang(fa) .tpl-list .marker::before { content: counter(item, persian); }
+.tpl-list .item-text { flex: 1 1 auto; min-width: 0; unicode-bidi: plaintext; text-align: start; overflow-wrap: anywhere; }
+.has-backdrop .tpl-list .list { padding: 28px 32px; }

@@ -1,26 +1,21 @@
-"""Evidence score of a trend topic (E02-S04 rules 14–20).
+"""Evidence score of a trend topic (E02-S04 rules 14-19).
 
-Pure functions take ``now`` as an argument; ``score_topic`` adds the database lookups for
-engagement reference sets (one query per signal kind). Rounding is half-up everywhere.
+Pure functions take `now` explicitly; tests never depend on the clock. Rounding is half-up.
 """
 
-from __future__ import annotations
-
 import math
-from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from urllib.parse import urlsplit
 
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
 
-from apps.core import clock
-
-COMPONENTS = ("signal_count", "source_diversity", "recency", "engagement")
-REFERENCE_WINDOW = timedelta(days=30)
+DEFAULT_WEIGHTS = {"signal_count": 0.35, "source_diversity": 0.25, "recency": 0.25,
+                   "engagement": 0.15}
+COMPONENTS = tuple(DEFAULT_WEIGHTS)
+REFERENCE_WINDOW_DAYS = 30
 MIN_REFERENCE_SET = 5
-METRIC_KEYS = ("likes", "comments", "views")
 
 
 def round_half_up(value: float) -> int:
@@ -28,20 +23,20 @@ def round_half_up(value: float) -> int:
 
 
 def weights() -> dict[str, float]:
-    return dict(settings.SOCIALHUB_RESEARCH_EVIDENCE_WEIGHTS)
+    return dict(getattr(settings, "SOCIALHUB_RESEARCH_EVIDENCE_WEIGHTS", None) or DEFAULT_WEIGHTS)
 
 
-def check_weights() -> None:
-    configured = weights()
-    if set(configured) != set(COMPONENTS):
-        raise ImproperlyConfigured(
-            f"SOCIALHUB_RESEARCH_EVIDENCE_WEIGHTS must have exactly the keys {COMPONENTS}."
-        )
-    if abs(sum(float(value) for value in configured.values()) - 1.0) > 1e-9:
-        raise ImproperlyConfigured("SOCIALHUB_RESEARCH_EVIDENCE_WEIGHTS must sum to 1.")
+@dataclass(frozen=True)
+class SignalFacts:
+    """What scoring needs from a signal; built from a `TrendSignal` or by hand in tests."""
 
-
-# --- Components -------------------------------------------------------------------------------
+    kind: str
+    url: str
+    author: str
+    published_at: datetime | None
+    captured_at: datetime
+    metrics: dict
+    percentile: float | None = None  # engagement percentile within its reference set
 
 
 def signal_count_component(n: int) -> int:
@@ -55,127 +50,121 @@ def _host(url: str) -> str:
     return host[4:] if host.startswith("www.") else host
 
 
-def _is_instagram(host: str) -> bool:
-    return host in ("instagram.com", "m.instagram.com")
-
-
-def origin_of(signal) -> str:
-    """An independent place the evidence comes from (rule 15)."""
-    author = (signal.author or "").strip().lower()
-    if not signal.url:
-        return author
-    host = _host(signal.url)
-    if signal.kind == "manual" and _is_instagram(host):
-        return author or "instagram.com"
+def origin(signal: SignalFacts) -> str:
+    host = _host(signal.url) if signal.url else ""
+    if signal.kind == "manual":
+        if not signal.url:
+            return f"author:{signal.author.strip().lower()}"
+        if host.endswith("instagram.com"):
+            author = signal.author.strip().lower()
+            return f"author:{author}" if author else host
     return host
 
 
-def source_diversity_component(signals: Sequence) -> int:
+def source_diversity_component(signals: list[SignalFacts]) -> int:
     if not signals:
         return 0
-    origins = {origin_of(signal) for signal in signals}
-    kinds = {signal.kind for signal in signals}
+    origins = {origin(s) for s in signals}
+    kinds = {s.kind for s in signals}
     return min(100, 25 * min(len(origins), 3) + (25 if len(kinds) >= 2 else 0))
 
 
-def _reference_time(signal) -> datetime:
-    return signal.published_at or signal.captured_at
-
-
-def recency_value(signal, now: datetime) -> float:
-    age_days = (now - _reference_time(signal)).total_seconds() / 86400
+def _signal_recency(signal: SignalFacts, now: datetime) -> float:
+    moment = signal.published_at or signal.captured_at
+    age_days = (now - moment) / timedelta(days=1)
     if age_days <= 2:
         return 100.0
     return max(0.0, 100 * (14 - age_days) / 12)
 
 
-def recency_component(signals: Sequence, now: datetime) -> int:
+def recency_component(signals: list[SignalFacts], now: datetime) -> int:
     if not signals:
         return 0
-    values = sorted((recency_value(signal, now) for signal in signals), reverse=True)[:3]
-    return round_half_up(sum(values) / len(values))
+    top = sorted((_signal_recency(s, now) for s in signals), reverse=True)[:3]
+    return round_half_up(sum(top) / len(top))
 
 
-def has_metrics(metrics) -> bool:
-    return isinstance(metrics, dict) and any(metrics.get(key) is not None for key in METRIC_KEYS)
+def engagement_value(metrics: dict) -> float | None:
+    if not metrics or not any(k in metrics for k in ("likes", "comments", "views")):
+        return None
+    return (float(metrics.get("likes") or 0) + 2 * float(metrics.get("comments") or 0)
+            + 0.1 * float(metrics.get("views") or 0))
 
 
-def engagement_value(metrics: dict) -> float:
-    def number(key):
-        value = metrics.get(key)
-        return float(value) if isinstance(value, (int, float)) else 0.0
-
-    return number("likes") + 2 * number("comments") + 0.1 * number("views")
-
-
-def percentile(value: float, reference: Iterable[float]) -> float:
-    reference = list(reference)
+def percentile(value: float, reference: list[float]) -> float:
     if len(reference) < MIN_REFERENCE_SET:
         return 0.5
-    return sum(1 for other in reference if other <= value) / len(reference)
+    return sum(1 for r in reference if r <= value) / len(reference)
 
 
-def engagement_component(percentiles: Sequence[float]) -> int:
-    """``percentiles`` holds one value per topic signal that has metrics."""
-    if not percentiles:
+def engagement_component(signals: list[SignalFacts]) -> int:
+    scored = [s.percentile for s in signals if s.percentile is not None]
+    if not scored:
         return 50
-    return round_half_up(100 * max(percentiles))
+    return round_half_up(100 * max(scored))
 
 
-def total(breakdown: dict[str, int]) -> int:
-    configured = weights()
-    return round_half_up(sum(float(configured[name]) * breakdown[name] for name in COMPONENTS))
+def combine(breakdown: dict[str, int], weight_map: dict[str, float] | None = None) -> int:
+    w = weight_map or weights()
+    return round_half_up(sum(w[name] * breakdown[name] for name in COMPONENTS))
 
 
-def compute(signals: Sequence, percentiles: Sequence[float], now: datetime) -> tuple[int, dict]:
+def score_facts(signals: list[SignalFacts], now: datetime,
+                weight_map: dict[str, float] | None = None) -> tuple[int, dict[str, int]]:
     if not signals:
         return 0, {name: 0 for name in COMPONENTS}
     breakdown = {
         "signal_count": signal_count_component(len(signals)),
         "source_diversity": source_diversity_component(signals),
         "recency": recency_component(signals, now),
-        "engagement": engagement_component(percentiles),
+        "engagement": engagement_component(signals),
     }
-    return total(breakdown), breakdown
+    return combine(breakdown, weight_map), breakdown
 
 
-# --- Database-backed scoring --------------------------------------------------------------------
+# --- Database-backed scoring -------------------------------------------------------------------
 
 
-def _reference_values(account_id: int, kind: str, now: datetime) -> list[float]:
+def _percentiles(account_id: int, signals, now: datetime) -> dict[int, float]:
+    """Engagement percentile per signal, one reference query per kind (rule 17)."""
     from ..models import TrendSignal
 
-    rows = TrendSignal.objects.filter(
-        account_id=account_id, kind=kind, captured_at__gte=now - REFERENCE_WINDOW
-    ).values_list("metrics", flat=True)
-    return [engagement_value(metrics) for metrics in rows if has_metrics(metrics)]
-
-
-def signal_percentiles(signals: Sequence, now: datetime) -> list[float]:
-    with_metrics = [signal for signal in signals if has_metrics(signal.metrics)]
-    if not with_metrics:
-        return []
-    references: dict[str, list[float]] = {}
-    result = []
-    for signal in with_metrics:
-        if signal.kind not in references:
-            references[signal.kind] = _reference_values(signal.account_id, signal.kind, now)
-        reference = list(references[signal.kind])
-        own = engagement_value(signal.metrics)
-        # The reference set includes the signal itself (it may be older than the window).
-        if signal.captured_at < now - REFERENCE_WINDOW:
-            reference.append(own)
-        result.append(percentile(own, reference))
+    result: dict[int, float] = {}
+    by_kind: dict[str, list] = {}
+    for s in signals:
+        if engagement_value(s.metrics) is not None:
+            by_kind.setdefault(s.kind, []).append(s)
+    since = now - timedelta(days=REFERENCE_WINDOW_DAYS)
+    for kind, members in by_kind.items():
+        reference_rows = TrendSignal.objects.filter(
+            account_id=account_id, kind=kind, captured_at__gte=since
+        ).values_list("id", "metrics")
+        reference = {pk: engagement_value(m) for pk, m in reference_rows}
+        for member in members:  # the signal itself always belongs to its reference set
+            reference[member.pk] = engagement_value(member.metrics)
+        values = [v for v in reference.values() if v is not None]
+        for member in members:
+            result[member.pk] = percentile(engagement_value(member.metrics), values)
     return result
 
 
-def score_topic(topic, now: datetime | None = None) -> tuple[int, dict]:
-    """Compute (score, breakdown) from the topic's linked signals. Does not save."""
-    now = now or clock.now()
-    signals = list(topic.signals.all()) if topic.pk else []
-    return compute(signals, signal_percentiles(signals, now), now)
+def facts_for(signals, account_id: int, now: datetime) -> list[SignalFacts]:
+    signals = list(signals)
+    pct = _percentiles(account_id, signals, now)
+    return [
+        SignalFacts(kind=s.kind, url=s.url, author=s.author, published_at=s.published_at,
+                    captured_at=s.captured_at, metrics=s.metrics or {}, percentile=pct.get(s.pk))
+        for s in signals
+    ]
 
 
-def rescore(topic, now: datetime | None = None) -> None:
-    topic.evidence_score, topic.evidence_breakdown = score_topic(topic, now)
-    topic.save(update_fields=["evidence_score", "evidence_breakdown", "updated_at"])
+def score_topic(topic, now: datetime | None = None, *, save: bool = True):
+    """Recompute and store a topic's evidence score from its linked signals."""
+    from django.utils import timezone
+
+    now = now or timezone.now()
+    facts = facts_for(topic.signals.all(), topic.account_id, now)
+    topic.evidence_score, topic.evidence_breakdown = score_facts(facts, now)
+    if save:
+        topic.save(update_fields=["evidence_score", "evidence_breakdown", "updated_at"])
+    return topic

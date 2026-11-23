@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <title>Sprudge</title><link>https://sprudge.com/</link>
+  <item><title>Batch brew is having a &lt;b&gt;moment&lt;/b&gt;</title>
+    <link>https://sprudge.com/batch-brew/?utm_source=rss</link>
+    <description>&lt;p&gt;Roasters say filter coffee now makes up a third of bar sales.&lt;/p&gt;</description>
+    <author>Editors</author><category>coffee</category>
+    <pubDate>{recent}</pubDate><guid>a1</guid></item>
+  <item><title>Old news</title><link>https://sprudge.com/old</link>
+    <description>Twenty days old.</description><pubDate>{old}</pubDate></item>
+  <item><title>Undated entry</title><link>/relative-entry</link><description>No date.</description></item>
+  <item><title>No link</title><description>Skipped.</description></item>
+  <item><title>Future</title><link>https://sprudge.com/future</link><pubDate>{future}</pubDate></item>
+</channel></rss>
