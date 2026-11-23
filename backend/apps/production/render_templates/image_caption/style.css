@@ -1,0 +1,6 @@
+/* Image with caption template. Brand values only through CSS variables. */
+.tpl-image_caption .scrim { opacity: 0; }
+.tpl-image_caption .content { justify-content: flex-end; }
+.tpl-image_caption .caption-panel { display: flex; flex-direction: column; gap: 16px; background: var(--brand-background); color: var(--brand-text); border-radius: 32px; padding: 40px 48px; min-height: 0; overflow: hidden; border-inline-start: 12px solid var(--brand-accent); }
+.tpl-image_caption .footer { color: var(--on-image); }
+.tpl-image_caption .footer .handle { text-shadow: 0 2px 12px color-mix(in srgb, var(--scrim-color) 60%, transparent); }

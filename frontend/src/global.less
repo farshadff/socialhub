@@ -1,0 +1,62 @@
+/*
+ * Vazirmatn (SIL Open Font License, public/fonts/Vazirmatn-OFL.txt), bundled from the `vazirmatn`
+ * npm package 33.0.3 (fonts/webfonts/Vazirmatn[wght].woff2). No font is loaded from a CDN.
+ * It is appended to the Ant Design font stack in config/theme.ts and leads the content stack for
+ * Persian (ContentText).
+ */
+@font-face {
+  font-family: Vazirmatn;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/Vazirmatn-Variable.woff2') format('woff2');
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.colorWeak {
+  filter: invert(80%);
+}
+
+.ant-layout {
+  min-height: 100vh;
+}
+.ant-pro-sider.ant-layout-sider.ant-pro-sider-fixed {
+  left: unset;
+}
+
+.ant-pro-sider-collapsed .ant-pro-sider-link span:not([role='img']) {
+  display: none;
+}
+
+canvas {
+  display: block;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+@media (max-width: 768px) {
+  .ant-table {
+    width: 100%;
+    overflow-x: auto;
+    &-thead > tr,
+    &-tbody > tr {
+      > th,
+      > td {
+        white-space: pre;
+        > span {
+          display: block;
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,4 @@
+{% from "_base/slots.j2" import slot with context %}
+{{ slot("headline", headline, "headline stat-number", "p") }}
+<div class="accent-bar"></div>
+{{ slot("body", body, "body", "p") }}

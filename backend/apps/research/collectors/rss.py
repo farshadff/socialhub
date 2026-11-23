@@ -1,114 +1,85 @@
-"""RSS and Atom collector (E02-S02 rules 31–35)."""
-
-from __future__ import annotations
+"""RSS and Atom collector (E02-S02 rules 31-35)."""
 
 import calendar
+import time
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urljoin, urlsplit
 
 import feedparser
 
-from apps.core.http import FetchError, safe_fetch
+from apps.core.http import FetchError, FetchHTTPError, FetchTimeout, safe_fetch
 
-from .base import CollectorContext, CollectorError, SignalDraft
+from ..models import SignalKind
+from .base import CollectContext, CollectorError, SignalDraft
 
-MAX_SIGNALS = 20
-FETCH_TIMEOUT = 10.0
-FETCH_MAX_BYTES = 2 * 1024 * 1024
-FETCH_MAX_REDIRECTS = 3
-MAX_TAGS = 10
-FUTURE_TOLERANCE = timedelta(days=1)
+RETRY_DELAY_SECONDS = 2
 
 
 def _entry_date(entry, now: datetime) -> datetime | None:
     for key in ("published_parsed", "updated_parsed"):
         parsed = entry.get(key)
         if parsed:
-            moment = datetime.fromtimestamp(calendar.timegm(parsed), tz=UTC)
-            # A date more than one day in the future is treated as missing.
-            if moment > now + FUTURE_TOLERANCE:
+            value = datetime.fromtimestamp(calendar.timegm(parsed), tz=UTC)
+            if value > now + timedelta(days=1):
                 return None
-            return moment
+            return value
     return None
 
 
-def _excerpt(entry) -> str:
-    if entry.get("summary"):
-        return entry["summary"]
-    for content in entry.get("content") or []:
-        if content.get("value"):
-            return content["value"]
-    return ""
-
-
-def _tags(entry) -> list[str]:
-    tags = []
-    for tag in entry.get("tags") or []:
-        term = tag.get("term") if isinstance(tag, dict) else None
-        if term:
-            tags.append(str(term))
-        if len(tags) >= MAX_TAGS:
-            break
-    return tags
-
-
-def parse_feed(content: bytes, feed_url: str, now: datetime) -> list[SignalDraft]:
-    parsed = feedparser.parse(content)
-    entries = parsed.get("entries") or []
-    if not entries:
-        if parsed.get("bozo"):
-            raise CollectorError("invalid_feed")
-        return []
-    feed = parsed.get("feed") or {}
-    feed_title = feed.get("title") or ""
-    host = urlsplit(feed_url).hostname or ""
-    drafts = []
-    for entry in entries:
-        link = entry.get("link")
-        if not link:
-            continue
-        drafts.append(
-            SignalDraft(
-                kind="rss",
-                url=urljoin(feed_url, link),
-                title=entry.get("title") or "",
-                excerpt=_excerpt(entry),
-                author=entry.get("author") or feed_title or host,
-                published_at=_entry_date(entry, now),
-                metrics={},
-                raw={
-                    "feed_title": feed_title,
-                    "entry_id": entry.get("id") or "",
-                    "tags": _tags(entry),
-                },
-            )
-        )
-    return drafts
-
-
-def select_entries(drafts: list[SignalDraft], ctx: CollectorContext) -> list[SignalDraft]:
-    """Newest first (undated last), drop entries older than the lookback window, keep 20."""
-    cutoff = ctx.now - timedelta(days=ctx.lookback_days)
-    dated = sorted((d for d in drafts if d.published_at), key=lambda d: d.published_at, reverse=True)
-    undated = [d for d in drafts if not d.published_at]
-    fresh = [d for d in dated if d.published_at >= cutoff] + undated
-    return fresh[:MAX_SIGNALS]
-
-
 class RSSCollector:
-    kind = "rss"
-    max_signals = MAX_SIGNALS
-    transport = None  # tests inject an httpx2.MockTransport here
+    max_signals = 20
 
-    def collect(self, source, ctx: CollectorContext) -> list[SignalDraft]:
+    def __init__(self, *, fetch=None, sleep=time.sleep):
+        self._fetch_override = fetch
+        self._sleep = sleep
+
+    def _fetch(self, url: str):
+        # Looked up at call time so tests can patch `rss.safe_fetch`.
+        return (self._fetch_override or safe_fetch)(url)
+
+    def _get(self, url: str):
         try:
-            response = safe_fetch(
-                source.value,
-                timeout=FETCH_TIMEOUT,
-                max_bytes=FETCH_MAX_BYTES,
-                max_redirects=FETCH_MAX_REDIRECTS,
-                transport=self.transport,
-            )
+            return self._fetch(url)
+        except FetchTimeout:
+            self._sleep(RETRY_DELAY_SECONDS)
+            try:
+                return self._fetch(url)
+            except FetchError as exc:
+                raise CollectorError(exc.code) from exc
+        except FetchHTTPError as exc:
+            raise CollectorError(exc.code) from exc
         except FetchError as exc:
-            raise CollectorError(exc.code, exc.detail) from exc
-        return select_entries(parse_feed(response.content, response.url, ctx.now), ctx)
+            raise CollectorError(exc.code) from exc
+
+    def collect(self, source, ctx: CollectContext) -> list[SignalDraft]:
+        result = self._get(source.value)
+        feed = feedparser.parse(result.content)
+        if not feed.entries:
+            if feed.get("bozo"):
+                raise CollectorError("invalid_feed")
+            return []
+
+        feed_title = (feed.feed.get("title") or "").strip()
+        host = urlsplit(source.value).hostname or ""
+        drafts = []
+        for entry in feed.entries:
+            link = (entry.get("link") or "").strip()
+            if not link:
+                continue
+            content = entry.get("content") or []
+            excerpt = entry.get("summary") or (content[0].get("value") if content else "") or ""
+            tags = [t.get("term") for t in entry.get("tags") or [] if t.get("term")][:10]
+            drafts.append(SignalDraft(
+                kind=SignalKind.RSS,
+                url=urljoin(result.url, link),
+                title=entry.get("title") or "",
+                excerpt=excerpt,
+                author=entry.get("author") or feed_title or host,
+                published_at=_entry_date(entry, ctx.now),
+                metrics={},
+                raw={"feed_title": feed_title, "entry_id": entry.get("id"), "tags": tags},
+            ))
+        # Newest first, undated last (rule 35); the age filter and the cut happen in the service.
+        drafts.sort(key=lambda d: (d.published_at is None,
+                                   -(d.published_at.timestamp() if d.published_at else 0)))
+        return drafts

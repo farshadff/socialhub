@@ -5,7 +5,7 @@ from .models import JobRun
 
 @admin.register(JobRun)
 class JobRunAdmin(admin.ModelAdmin):
-    list_display = ("created_at", "kind", "status", "progress", "account", "target_type", "target_id")
-    list_filter = ("status", "kind", "queue")
-    search_fields = ("id", "target_id")
-    readonly_fields = [field.name for field in JobRun._meta.fields]
+    list_display = ("kind", "status", "account", "target_type", "target_id", "progress",
+                    "created_at")
+    list_filter = ("status", "kind")
+    readonly_fields = [f.name for f in JobRun._meta.fields]

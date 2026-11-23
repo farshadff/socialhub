@@ -1,9 +1,8 @@
-Query: {{ query }}
-Window start: {{ window_start }}
-Return at most {{ max_signals }} signals.
+Window starts: {{ window_start }}
+Maximum signals: {{ max_signals }}
 
-Result URLs (the only URLs you may use):
-{{ results | tojson }}
-
-Search notes:
+Results (the only URLs you may use):
+{% for r in results %}- {{ r.url }}{% if r.title %} — {{ r.title }}{% endif %}
+{% endfor %}
+Research summary:
 {{ search_text }}

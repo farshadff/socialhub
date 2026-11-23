@@ -1,378 +1,292 @@
-"""/research/* endpoints. Views validate, call a service and return (ARCHITECTURE.md section 2)."""
+"""Research API (E02-S01, S02, S04, S05). Both roles may use every endpoint."""
 
-from __future__ import annotations
-
-from django.db.models import Count, Q
-from django.shortcuts import get_object_or_404
-from django.utils.dateparse import parse_datetime
-from rest_framework import mixins, status, viewsets
-from rest_framework.exceptions import NotFound
+from django.db.models import Count, Q, TextField
+from django.db.models.functions import Cast
+from rest_framework import status
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
 from apps.accounts.models import InstagramAccount
-from apps.core import clock
-from apps.core.exceptions import InvalidTransition, field_error, field_error_with_details
-from apps.core.jobs import JobInProgress
-from apps.planning.models import WeeklyPlan
+from apps.core.errors import InvalidTransition, ProviderNotConfiguredError
+from apps.core.params import (
+    bool_param,
+    csv_values,
+    datetime_param,
+    int_param,
+    required_account,
+)
 
 from .models import ResearchRun, ResearchSource, TrendSignal, TrendTopic
 from .serializers import (
     ManualSignalSerializer,
-    ManualTopicSerializer,
     ResearchRunDetailSerializer,
     ResearchRunSerializer,
     ResearchSourceSerializer,
-    RunRequestSerializer,
+    StartRunSerializer,
+    TopicCreateSerializer,
     TopicUpdateSerializer,
     TrendSignalSerializer,
     TrendTopicDetailSerializer,
     TrendTopicSerializer,
-    run_accepted_response,
+    field_error,
 )
-from .services import runs, topics
-from .services.fingerprints import InvalidURL, fingerprint
-from .services.runs import RunRequest
-
-# --- Helpers ------------------------------------------------------------------------------------
+from .services import platform, runs, topics as topic_service
+from .services.plans import default_plan
 
 
-def _csv(value: str | None) -> list[str]:
-    return [part.strip() for part in (value or "").split(",") if part.strip()]
+def ensure_not_archived(account: InstagramAccount) -> None:
+    if account.status == InstagramAccount.Status.ARCHIVED:
+        raise InvalidTransition(details={"status": account.status})
 
 
-def scoped_account(request) -> InstagramAccount:
-    """List endpoints require ``?account=`` (API.md, Account scope)."""
-    raw = request.query_params.get("account")
-    if not raw:
-        raise field_error("account", "required")
-    if not raw.isdigit():
-        raise field_error("account", "invalid")
-    account = InstagramAccount.objects.filter(pk=int(raw)).first()
-    if account is None:
-        raise NotFound()
-    return account
+def resolve_account_from_body(request) -> InstagramAccount:
+    raw = request.data.get("account") if hasattr(request.data, "get") else None
+    if raw in (None, ""):
+        raise ValidationError({"account": field_error("required")})
+    try:
+        return InstagramAccount.objects.get(pk=int(raw))
+    except (InstagramAccount.DoesNotExist, TypeError, ValueError):
+        raise ValidationError({"account": field_error("does_not_exist")}) from None
 
 
-def ensure_writable(account: InstagramAccount) -> None:
-    if account.is_archived:
-        raise InvalidTransition({"status": account.status, "reason": "account_archived"})
-
-
-def _ordering(request, allowed: set[str], default: list[str]) -> list[str]:
-    raw = request.query_params.get("ordering")
-    if not raw:
-        return default
-    fields = _csv(raw)
-    if not fields or any(field not in allowed for field in fields):
-        raise field_error("ordering", "invalid_choice")
+def ordering_param(request, allowed: tuple[str, ...], default: str) -> list[str]:
+    raw = request.query_params.get("ordering", default)
+    fields = [f.strip() for f in raw.split(",") if f.strip()]
+    if not fields or any(f not in allowed for f in fields):
+        fields = [f.strip() for f in default.split(",")]
     return fields
 
 
-def _int_param(request, name: str) -> int | None:
-    raw = request.query_params.get(name)
-    if raw in (None, ""):
-        return None
-    if not raw.isdigit():
-        raise field_error(name, "invalid")
-    return int(raw)
-
-
-def _bool_param(request, name: str) -> bool | None:
-    raw = request.query_params.get(name)
-    if raw in (None, ""):
-        return None
-    if raw not in ("true", "false"):
-        raise field_error(name, "invalid")
-    return raw == "true"
+class AccountScopedList(GenericAPIView):
+    def paginated(self, queryset, serializer_class, **context):
+        page = self.paginate_queryset(queryset)
+        ctx = {**self.get_serializer_context(), **context}
+        return self.get_paginated_response(serializer_class(page, many=True, context=ctx).data)
 
 
 # --- Sources ------------------------------------------------------------------------------------
 
 
-class ResearchSourceViewSet(
-    mixins.ListModelMixin,
-    mixins.CreateModelMixin,
-    mixins.UpdateModelMixin,
-    mixins.DestroyModelMixin,
-    viewsets.GenericViewSet,
-):
+def running_run(account_id: int) -> ResearchRun | None:
+    return (ResearchRun.objects.select_related("job")
+            .filter(account_id=account_id, status=ResearchRun.Status.RUNNING).first())
+
+
+class SourceListView(AccountScopedList):
     serializer_class = ResearchSourceSerializer
-    http_method_names = ["get", "post", "patch", "delete"]
-    queryset = ResearchSource.objects.select_related("account")
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        if self.action != "list":
-            return queryset
-        account = scoped_account(self.request)
-        queryset = queryset.filter(account=account)
-        kinds = _csv(self.request.query_params.get("kind"))
-        if kinds:
-            queryset = queryset.filter(kind__in=kinds)
-        active = _bool_param(self.request, "active")
-        if active is not None:
-            queryset = queryset.filter(active=active)
-        ordering = _ordering(self.request, {"kind", "label", "-last_run_at"}, ["kind", "label"])
-        return queryset.order_by(*ordering, "id")
+    def get(self, request):
+        account = required_account(request)
+        qs = ResearchSource.objects.filter(account=account)
+        if kinds := csv_values(request, "kind"):
+            qs = qs.filter(kind__in=kinds)
+        if (active := bool_param(request, "active")) is not None:
+            qs = qs.filter(active=active)
+        ordering = ordering_param(request, ("kind", "label", "-last_run_at"), "kind,label")
+        return self.paginated(qs.order_by(*ordering, "id"), ResearchSourceSerializer)
 
-    def perform_create(self, serializer):
-        ensure_writable(serializer.validated_data["account"])
-        serializer.save()
+    def post(self, request):
+        serializer = ResearchSourceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        ensure_not_archived(serializer.validated_data["account"])
+        source = serializer.save()
+        return Response(ResearchSourceSerializer(source).data, status=status.HTTP_201_CREATED)
 
-    def perform_update(self, serializer):
-        ensure_writable(serializer.instance.account)
-        serializer.save()
 
-    def perform_destroy(self, instance):
-        ensure_writable(instance.account)
-        runs.recover_stale_runs(instance.account_id)
-        active = runs.running_run(instance.account_id)
-        if active is not None:
-            raise JobInProgress(active.job)
-        instance.delete()
+class SourceDetailView(GenericAPIView):
+    serializer_class = ResearchSourceSerializer
+
+    def get_object(self):
+        try:
+            return ResearchSource.objects.select_related("account").get(pk=self.kwargs["pk"])
+        except ResearchSource.DoesNotExist:
+            raise NotFound() from None
+
+    def get(self, request, pk):
+        return Response(ResearchSourceSerializer(self.get_object()).data)
+
+    def patch(self, request, pk):
+        source = self.get_object()
+        ensure_not_archived(source.account)
+        serializer = ResearchSourceSerializer(source, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        source = serializer.save()
+        return Response(ResearchSourceSerializer(source).data)
+
+    def delete(self, request, pk):
+        source = self.get_object()
+        ensure_not_archived(source.account)
+        if (run := running_run(source.account_id)) is not None and run.job is not None:
+            raise platform.JobInProgress(run.job)
+        source.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # --- Runs ---------------------------------------------------------------------------------------
 
 
-class ResearchRunViewSet(
-    mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
-):
-    queryset = ResearchRun.objects.select_related("job", "job__created_by")
+class RunListView(AccountScopedList):
+    def get(self, request):
+        account = required_account(request)
+        qs = ResearchRun.objects.filter(account=account).select_related("job", "started_by")
+        if (plan := int_param(request, "plan")) is not None:
+            qs = qs.filter(plan_id=plan)
+        if statuses := csv_values(request, "status"):
+            qs = qs.filter(status__in=statuses)
+        return self.paginated(qs.order_by("-started_at", "-id"), ResearchRunSerializer)
 
-    def get_serializer_class(self):
-        return ResearchRunDetailSerializer if self.action == "retrieve" else ResearchRunSerializer
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        if self.action != "list":
-            return queryset
-        queryset = queryset.filter(account=scoped_account(self.request))
-        plan = _int_param(self.request, "plan")
-        if plan is not None:
-            queryset = queryset.filter(plan_id=plan)
-        statuses = _csv(self.request.query_params.get("status"))
-        if statuses:
-            queryset = queryset.filter(status__in=statuses)
-        return queryset.order_by("-started_at", "-id")
-
-    def create(self, request):
-        serializer = RunRequestSerializer(data=request.data)
+    def post(self, request):
+        serializer = StartRunSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         account = data["account"]
-        ensure_writable(account)
+        ensure_not_archived(account)
+        if data["synthesize"] and not platform.text_provider_configured():
+            raise ProviderNotConfiguredError()
+        plan = data["plan_obj"] if data["plan_given"] else default_plan(account)
+        params = {"lookback_days": data["lookback_days"], "source_ids": data["source_ids"],
+                  "collect": data["collect"], "synthesize": data["synthesize"]}
+        run = runs.start_run(account, plan=plan, params=params, user=request.user,
+                             request_id=getattr(request, "request_id", None))
+        return Response({"job": platform.job_payload(run.job)}, status=status.HTTP_202_ACCEPTED)
 
-        if "plan" in request.data:
-            plan = None
-            if data.get("plan") is not None:
-                plan = WeeklyPlan.objects.filter(pk=data["plan"], account=account).first()
-                if plan is None or plan.status == WeeklyPlan.Status.CLOSED:
-                    raise field_error("plan", "invalid")
-        else:
-            plan = runs.default_plan(account)
 
-        source_ids = data.get("source_ids")
-        if source_ids:
-            valid = set(
-                ResearchSource.objects.filter(
-                    pk__in=source_ids, account=account, active=True
-                ).values_list("pk", flat=True)
-            )
-            for index, source_id in enumerate(source_ids):
-                if source_id not in valid:
-                    raise field_error(f"source_ids.{index}", "invalid")
-            source_ids = list(dict.fromkeys(source_ids))
-
-        if not data["collect"] and not data["synthesize"]:
-            raise field_error("", "nothing_to_do")
-        if data["collect"]:
-            available = ResearchSource.objects.filter(account=account, active=True)
-            if source_ids:
-                available = available.filter(pk__in=source_ids)
-            if not available.exists():
-                raise field_error("source_ids", "no_active_sources")
-
-        job = runs.start_run(
-            RunRequest(
-                account=account,
-                plan=plan,
-                source_ids=source_ids or None,
-                lookback_days=data["lookback_days"],
-                collect=data["collect"],
-                synthesize=data["synthesize"],
-            ),
-            user=request.user,
-            request_id=getattr(request, "request_id", None),
-        )
-        return Response(run_accepted_response(job), status=status.HTTP_202_ACCEPTED)
+class RunDetailView(GenericAPIView):
+    def get(self, request, pk):
+        run = (ResearchRun.objects.select_related("job", "started_by").filter(pk=pk).first())
+        if run is None:
+            raise NotFound()
+        return Response(ResearchRunDetailSerializer(run).data)
 
 
 # --- Signals ------------------------------------------------------------------------------------
 
 
-class TrendSignalViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
-    serializer_class = TrendSignalSerializer
-    queryset = TrendSignal.objects.select_related("source").prefetch_related("topics")
+class SignalListView(AccountScopedList):
+    def get(self, request):
+        account = required_account(request)
+        qs = (TrendSignal.objects.filter(account=account)
+              .select_related("source").prefetch_related("topics"))
+        if (signal_id := int_param(request, "id")) is not None:
+            qs = qs.filter(pk=signal_id)  # the panel's "Show it" after a duplicate (S05)
+        if (run := int_param(request, "run")) is not None:
+            qs = qs.filter(run_id=run)
+        if (source := int_param(request, "source")) is not None:
+            qs = qs.filter(source_id=source)
+        if kinds := csv_values(request, "kind"):
+            qs = qs.filter(kind__in=kinds)
+        if (topic := int_param(request, "topic")) is not None:
+            qs = qs.filter(topics__id=topic)
+        if bool_param(request, "unassigned"):
+            qs = qs.filter(topics__isnull=True)
+        if q := request.query_params.get("q", "").strip():
+            qs = qs.filter(Q(title__icontains=q) | Q(excerpt__icontains=q)
+                           | Q(author__icontains=q))
+        if after := datetime_param(request, "captured_after"):
+            qs = qs.filter(captured_at__gte=after)
+        if before := datetime_param(request, "captured_before"):
+            qs = qs.filter(captured_at__lte=before)
+        ordering = ordering_param(
+            request, ("-captured_at", "captured_at", "-published_at", "published_at"),
+            "-captured_at")
+        return self.paginated(qs.distinct().order_by(*ordering, "-id"), TrendSignalSerializer)
 
-    def get_queryset(self):
-        queryset = super().get_queryset().filter(account=scoped_account(self.request))
-        params = self.request.query_params
-        for name, lookup in (("run", "run_id"), ("source", "source_id"), ("topic", "topics__id")):
-            value = _int_param(self.request, name)
-            if value is not None:
-                queryset = queryset.filter(**{lookup: value})
-        kinds = _csv(params.get("kind"))
-        if kinds:
-            queryset = queryset.filter(kind__in=kinds)
-        if _bool_param(self.request, "unassigned"):
-            queryset = queryset.filter(topics__isnull=True)
-        if params.get("q"):
-            term = params["q"]
-            queryset = queryset.filter(
-                Q(title__icontains=term) | Q(excerpt__icontains=term) | Q(author__icontains=term)
-            )
-        for name, lookup in (("captured_after", "captured_at__gte"), ("captured_before", "captured_at__lt")):
-            if params.get(name):
-                moment = parse_datetime(params[name])
-                if moment is None:
-                    raise field_error(name, "invalid")
-                queryset = queryset.filter(**{lookup: moment})
-        ordering = _ordering(
-            self.request,
-            {"-captured_at", "captured_at", "-published_at", "published_at"},
-            ["-captured_at"],
-        )
-        return queryset.distinct().order_by(*ordering, "-id")
-
-    def create(self, request):
+    def post(self, request):
         serializer = ManualSignalSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        serializer.raise_if_duplicate()
         data = serializer.validated_data
-        if not data.get("url") and not (data.get("excerpt") or "").strip():
-            raise field_error("", "url_or_excerpt_required")
         account = data["account"]
-        ensure_writable(account)
-        topic = data.get("topic")
+        ensure_not_archived(account)
+        topic = data["topic_obj"]
         if topic is not None and topic.status == TrendTopic.Status.USED:
-            raise InvalidTransition({"status": topic.status, "allowed_statuses": []})
-
-        url = data.get("url", "")
-        excerpt = (data.get("excerpt") or "").strip()
-        author = (data.get("author") or "").strip()
-        try:
-            print_ = fingerprint("manual", url, author, excerpt)
-        except InvalidURL as exc:
-            raise field_error("url", "invalid") from exc
-        existing = TrendSignal.objects.filter(account=account, fingerprint=print_).first()
-        if existing is not None:
-            raise field_error_with_details(
-                "url" if url else "excerpt", "unique", {"signal_id": existing.pk}
-            )
+            raise topic_service.invalid_transition(topic)
+        from django.utils import timezone
 
         signal = TrendSignal.objects.create(
-            account=account,
-            run=None,
-            source=None,
-            kind="manual",
-            url=url,
-            title=data["title"].strip(),
-            excerpt=excerpt,
-            author=author,
-            published_at=data.get("published_at"),
-            captured_at=clock.now(),
-            metrics=data.get("metrics") or {},
-            fingerprint=print_,
-            raw={},
+            account=account, run=None, source=None, kind="manual", url=data.get("url", ""),
+            title=data["title"], excerpt=data.get("excerpt", ""), author=data.get("author", ""),
+            published_at=data.get("published_at"), captured_at=timezone.now(),
+            metrics=data.get("metrics") or {}, fingerprint=data["fingerprint"], raw={},
         )
         if topic is not None:
-            topics.attach_signal(topic, signal)
-        signal = TrendSignal.objects.select_related("source").get(pk=signal.pk)
+            topic_service.attach_signal(topic, signal)
         return Response(TrendSignalSerializer(signal).data, status=status.HTTP_201_CREATED)
 
 
 # --- Topics -------------------------------------------------------------------------------------
 
 
-class TrendTopicViewSet(
-    mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
-):
-    queryset = TrendTopic.objects.all()
-    http_method_names = ["get", "post", "patch"]
+class TopicListView(AccountScopedList):
+    def get(self, request):
+        account = required_account(request)
+        qs = TrendTopic.objects.filter(account=account).annotate(
+            linked_signals=Count("signals", distinct=True))
+        plan_raw = request.query_params.get("plan")
+        if plan_raw == "none":
+            qs = qs.filter(plan__isnull=True)
+        elif plan_raw:
+            qs = qs.filter(plan_id=int_param(request, "plan"))
+        if (run := int_param(request, "run")) is not None:
+            qs = qs.filter(run_id=run)
+        if statuses := csv_values(request, "status"):
+            qs = qs.filter(status__in=statuses)
+        if origins := csv_values(request, "origin"):
+            qs = qs.filter(origin__in=origins)
+        if (min_evidence := int_param(request, "min_evidence")) is not None:
+            if not 0 <= min_evidence <= 100:
+                code = "min_value" if min_evidence < 0 else "max_value"
+                raise ValidationError({"min_evidence": field_error(code)})
+            qs = qs.filter(evidence_score__gte=min_evidence)
+        if q := request.query_params.get("q", "").strip():
+            qs = qs.annotate(keywords_text=Cast("keywords", TextField())).filter(
+                Q(title__icontains=q) | Q(summary__icontains=q) | Q(keywords_text__icontains=q))
+        ordering = ordering_param(
+            request, ("-evidence_score", "evidence_score", "-created_at", "title"),
+            "-evidence_score")
+        return self.paginated(qs.order_by(*ordering, "-id"), TrendTopicSerializer)
 
-    def get_serializer_class(self):
-        return TrendTopicDetailSerializer if self.action == "retrieve" else TrendTopicSerializer
+    def post(self, request):
+        account = resolve_account_from_body(request)
+        serializer = TopicCreateSerializer(data=request.data, context={"account": account})
+        serializer.is_valid(raise_exception=True)
+        ensure_not_archived(account)
+        data = dict(serializer.validated_data)
+        plan = data["plan"] if "plan" in data else default_plan(account)
+        if topic_service.title_taken(account, plan, data["title"]):
+            raise ValidationError({"title": field_error("unique")})
+        topic = topic_service.create_manual(account=account, plan=plan, data=data,
+                                            signals=data.get("signals", []))
+        return Response(TrendTopicDetailSerializer(topic).data, status=status.HTTP_201_CREATED)
 
-    def get_queryset(self):
-        queryset = super().get_queryset().annotate(linked_signals=Count("signals", distinct=True))
-        if self.action != "list":
-            return queryset
-        params = self.request.query_params
-        queryset = queryset.filter(account=scoped_account(self.request))
-        plan = params.get("plan")
-        if plan == "none":
-            queryset = queryset.filter(plan__isnull=True)
-        elif plan:
-            queryset = queryset.filter(plan_id=_int_param(self.request, "plan"))
-        run = _int_param(self.request, "run")
-        if run is not None:
-            queryset = queryset.filter(run_id=run)
-        statuses = _csv(params.get("status"))
-        if statuses:
-            queryset = queryset.filter(status__in=statuses)
-        if params.get("origin"):
-            queryset = queryset.filter(origin__in=_csv(params["origin"]))
-        min_evidence = params.get("min_evidence")
-        if min_evidence not in (None, ""):
-            if not min_evidence.isdigit():
-                raise field_error("min_evidence", "invalid")
-            if int(min_evidence) > 100:
-                raise field_error("min_evidence", "max_value")
-            queryset = queryset.filter(evidence_score__gte=int(min_evidence))
-        if params.get("q"):
-            term = params["q"]
-            queryset = queryset.filter(
-                Q(title__icontains=term)
-                | Q(summary__icontains=term)
-                | Q(keywords__icontains=term)
-            )
-        ordering = _ordering(
-            self.request,
-            {"-evidence_score", "evidence_score", "-created_at", "title"},
-            ["-evidence_score"],
-        )
-        return queryset.order_by(*ordering, "-id")
 
-    def create(self, request):
-        serializer = ManualTopicSerializer(data=request.data)
+class TopicDetailView(GenericAPIView):
+    def get_object(self):
+        topic = TrendTopic.objects.select_related("account").filter(pk=self.kwargs["pk"]).first()
+        if topic is None:
+            raise NotFound()
+        return topic
+
+    def get(self, request, pk):
+        return Response(TrendTopicDetailSerializer(self.get_object()).data)
+
+    def patch(self, request, pk):
+        topic = self.get_object()
+        if topic.status == TrendTopic.Status.USED:
+            raise topic_service.invalid_transition(topic)
+        ensure_not_archived(topic.account)
+        serializer = TopicUpdateSerializer(data=request.data, partial=True,
+                                           context={"account": topic.account})
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
-        account = data.pop("account")
-        ensure_writable(account)
-        if "plan" in request.data:
-            plan = data.pop("plan", None)
-        else:
-            data.pop("plan", None)
-            plan = runs.default_plan(account)
-        signals = data.pop("signal_ids", [])
-        topic = topics.create_manual(account=account, plan=plan, data=data, signals=signals)
-        topic = self.get_queryset().get(pk=topic.pk)
-        return Response(TrendTopicSerializer(topic).data, status=status.HTTP_201_CREATED)
-
-    def partial_update(self, request, pk=None):
-        topic = get_object_or_404(TrendTopic.objects.select_related("account"), pk=pk)
-        if topic.status == TrendTopic.Status.USED:
-            raise InvalidTransition({"status": topic.status, "allowed_statuses": []})
-        serializer = TopicUpdateSerializer(data=request.data, topic=topic)
-        serializer.is_valid(raise_exception=True)
-        changes = dict(serializer.validated_data)
-        if "signal_ids" in changes:
-            changes["signals"] = changes.pop("signal_ids")
-        if changes.get("status") == TrendTopic.Status.USED:
-            raise InvalidTransition(
-                {"status": topic.status, "allowed_statuses": list(topics.allowed_statuses(topic))}
-            )
-        topic = topics.update_topic(topic, changes)
-        topic = self.get_queryset().get(pk=topic.pk)
+        signals = data.pop("signals", None)
+        data.pop("signal_ids", None)
+        if data.get("status") == TrendTopic.Status.USED:
+            raise topic_service.invalid_transition(topic)
+        if "title" in data:
+            plan = data["plan"] if "plan" in data else topic.plan
+            if topic_service.title_taken(topic.account, plan, data["title"], exclude_id=topic.pk):
+                raise ValidationError({"title": field_error("unique")})
+        topic = topic_service.update_topic(topic, data, signals)
         return Response(TrendTopicDetailSerializer(topic).data)
-

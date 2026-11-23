@@ -1,0 +1,5 @@
+/* Title template. Brand values only through CSS variables. */
+.tpl-title .content { justify-content: flex-end; gap: 36px; padding-block-end: 24px; }
+.layout-4x5 .tpl-title .content { justify-content: center; }
+.has-image .tpl-title .scrim { opacity: 1; background: linear-gradient(to bottom, color-mix(in srgb, var(--scrim-color) 20%, transparent) 0%, color-mix(in srgb, var(--scrim-color) 45%, transparent) 45%, color-mix(in srgb, var(--scrim-color) 80%, transparent) 100%); }
+.tpl-title .body { opacity: 0.9; }

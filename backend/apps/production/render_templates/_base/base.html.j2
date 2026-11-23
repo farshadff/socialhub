@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="{{ lang }}" dir="{{ dir }}" class="layout-{{ layout }}{% if overlay %} is-overlay{% endif %}{% if has_image %} has-image{% endif %}{% if text_backdrop %} has-backdrop{% endif %}{% if debug_boxes %} debug-boxes{% endif %}">
+<head>
+<meta charset="utf-8">
+<title>{{ template_key }}</title>
+<style>
+{% for face in font_faces %}
+@font-face {
+  font-family: "{{ face.family }}";
+  src: url("{{ face.src }}");
+  font-weight: {{ face.weight }};
+  font-style: normal;
+  font-display: block;
+}
+{% endfor %}
+:root {
+  --canvas-width: {{ width }}px;
+  --canvas-height: {{ height }}px;
+  --brand-primary: {{ brand.colors.primary }};
+  --brand-secondary: {{ brand.colors.secondary }};
+  --brand-accent: {{ brand.colors.accent }};
+  --brand-background: {{ brand.colors.background }};
+  --brand-text: {{ brand.colors.text }};
+  --on-primary: {{ brand.on_primary }};
+  --on-accent: {{ brand.on_accent }};
+  --on-image: {{ brand.on_image }};
+  --scrim-color: {{ brand.scrim_color }};
+  --font-heading: "{{ brand.font_heading }}", "{{ brand.font_fallback }}";
+  --font-body: "{{ brand.font_body }}", "{{ brand.font_fallback }}";
+  --safe-top: {{ safe.top }}px;
+  --safe-right: {{ safe.right }}px;
+  --safe-bottom: {{ safe.bottom }}px;
+  --safe-left: {{ safe.left }}px;
+}
+</style>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="canvas tpl-{{ template_key }}">
+  {% if has_image and not overlay %}
+  <div class="bg"><img src="{{ background_src }}" alt=""></div>
+  <div class="scrim"></div>
+  {% endif %}
+  <div class="frame">
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+    {% block footer %}
+    <footer class="footer">
+      {% if logo_src %}<img class="logo" src="{{ logo_src }}" alt="">{% endif %}
+      {% if handle %}<span class="handle" dir="ltr">{{ handle }}</span>{% endif %}
+    </footer>
+    {% endblock %}
+  </div>
+</div>
+<script src="fit.js"></script>
+</body>
+</html>

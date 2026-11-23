@@ -1,0 +1,49 @@
+{
+  "key": "list",
+  "name": "List",
+  "description": "A heading and two to five short points.",
+  "version": "1",
+  "image_slot": "none",
+  "scrim": "brand",
+  "layouts": [
+    "4x5",
+    "9x16"
+  ],
+  "fields": {
+    "headline": {
+      "required": true,
+      "max_chars": 50,
+      "max_lines": 2,
+      "font": {
+        "4x5": {
+          "max_font": 72,
+          "min_font": 44
+        },
+        "9x16": {
+          "max_font": 80,
+          "min_font": 48
+        }
+      }
+    },
+    "body": {
+      "required": true,
+      "max_chars": 300,
+      "max_lines": 5,
+      "items": {
+        "min": 2,
+        "max": 5,
+        "max_chars": 60
+      },
+      "font": {
+        "4x5": {
+          "max_font": 46,
+          "min_font": 30
+        },
+        "9x16": {
+          "max_font": 52,
+          "min_font": 32
+        }
+      }
+    }
+  }
+}

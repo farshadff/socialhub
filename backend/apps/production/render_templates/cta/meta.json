@@ -1,0 +1,44 @@
+{
+  "key": "cta",
+  "name": "Call to action",
+  "description": "Closing frame that asks for one action, with the logo and handle large.",
+  "version": "1",
+  "image_slot": "optional",
+  "scrim": "brand",
+  "layouts": [
+    "4x5",
+    "9x16"
+  ],
+  "fields": {
+    "headline": {
+      "required": true,
+      "max_chars": 50,
+      "max_lines": 3,
+      "font": {
+        "4x5": {
+          "max_font": 96,
+          "min_font": 52
+        },
+        "9x16": {
+          "max_font": 108,
+          "min_font": 56
+        }
+      }
+    },
+    "body": {
+      "required": false,
+      "max_chars": 80,
+      "max_lines": 2,
+      "font": {
+        "4x5": {
+          "max_font": 44,
+          "min_font": 30
+        },
+        "9x16": {
+          "max_font": 48,
+          "min_font": 32
+        }
+      }
+    }
+  }
+}

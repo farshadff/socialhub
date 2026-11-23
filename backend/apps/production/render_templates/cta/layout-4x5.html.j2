@@ -1,0 +1,8 @@
+{% extends "_base/base.html.j2" %}
+{% block content %}{% include "cta/content.html.j2" %}{% endblock %}
+{% block footer %}
+<footer class="footer footer-large">
+  {% if logo_src %}<img class="logo" src="{{ logo_src }}" alt="">{% endif %}
+  {% if handle %}<span class="handle" dir="ltr">{{ handle }}</span>{% endif %}
+</footer>
+{% endblock %}

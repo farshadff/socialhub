@@ -125,7 +125,7 @@ Statuses and what each allows are in [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGR
 | `created_by` | FK User, null | Null for scheduled jobs |
 | `started_at` / `finished_at` | datetime, null | |
 
-At most one active job per target and kind: partial unique index on (`target_type`, `target_id`, `kind`) where `status` is `queued` or `running`. Index on (`account`, `status`, `finished_at`) for the overview. Every `active_job` foreign key elsewhere uses `on_delete=SET_NULL`. APIs return an active job as `JobSummary` = `{id, kind, status, progress, message}`.
+At most one active job per target and kind: partial unique index on (`target_type`, `target_id`, `kind`) where `status` is `queued` or `running`. Index on (`account`, `status`, `finished_at`) for the overview; (`target_type`, `target_id`, `status`), (`account`, `-created_at`) and (`status`, `deadline_at`) for conflict checks, job lists and the sweeper (E00-S06). Every `active_job` foreign key elsewhere uses `on_delete=SET_NULL`. APIs return an active job as `JobSummary` = `{id, kind, status, progress, message}`.
 
 Job kinds by owning story:
 

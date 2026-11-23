@@ -1,7 +1,7 @@
 {
-  "text": "1. https://example.com/fake-result-1 — Example Coffee News, 2026-11-20. Cafés report more orders of filter coffee as customers look for lighter cups.\n2. https://example.com/fake-result-2 — Example Roasters Blog, 2026-11-19. Roasters say batch brew now makes up a larger share of bar sales.",
+  "text": "- https://example.com/research/sample/1 — A sample finding: cafés report more filter coffee orders.\n- https://example.com/research/sample/2 — Another sample finding.",
   "citations": [
-    {"url": "https://example.com/fake-result-1", "title": "Why filter coffee is back on café menus"},
-    {"url": "https://example.com/fake-result-2", "title": "Batch brew is having a moment"}
+    {"url": "https://example.com/research/sample/1", "title": "A sample finding"},
+    {"url": "https://example.com/research/sample/2", "title": "Another sample finding"}
   ]
 }

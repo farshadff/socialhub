@@ -1,1 +1,1 @@
-You are a connectivity check. Reply with the single word "pong".
+You are a connectivity check for Social Hub.

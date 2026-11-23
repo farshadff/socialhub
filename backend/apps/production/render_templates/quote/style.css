@@ -1,0 +1,9 @@
+/* Quote template. Brand values only through CSS variables. */
+.tpl-quote .content { gap: 28px; }
+.tpl-quote .quote-mark { font-family: var(--font-heading); font-weight: 700; font-size: 220px; line-height: 0.8; block-size: 120px; color: var(--brand-accent); }
+:lang(fa) .tpl-quote .quote-mark { transform: scaleX(-1); align-self: flex-start; }
+.tpl-quote .quote-text { font-weight: 700; }
+.tpl-quote .attribution { display: flex; align-items: center; gap: 20px; }
+.tpl-quote .attribution-rule { flex: none; inline-size: 64px; block-size: 4px; background: var(--brand-accent); border-radius: 2px; }
+.tpl-quote .attribution .body { font-weight: 700; opacity: 0.85; }
+.has-image .tpl-quote .scrim { opacity: 0.6; }

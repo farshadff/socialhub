@@ -1,0 +1,44 @@
+{
+  "key": "statement",
+  "name": "Statement",
+  "description": "One strong sentence, set large, with an optional line under it.",
+  "version": "1",
+  "image_slot": "optional",
+  "scrim": "brand",
+  "layouts": [
+    "4x5",
+    "9x16"
+  ],
+  "fields": {
+    "headline": {
+      "required": true,
+      "max_chars": 110,
+      "max_lines": 5,
+      "font": {
+        "4x5": {
+          "max_font": 84,
+          "min_font": 48
+        },
+        "9x16": {
+          "max_font": 96,
+          "min_font": 52
+        }
+      }
+    },
+    "body": {
+      "required": false,
+      "max_chars": 80,
+      "max_lines": 2,
+      "font": {
+        "4x5": {
+          "max_font": 40,
+          "min_font": 28
+        },
+        "9x16": {
+          "max_font": 44,
+          "min_font": 30
+        }
+      }
+    }
+  }
+}

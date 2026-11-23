@@ -1,0 +1,4 @@
+{# Text slot macro. `fit` holds the per-layout font limits from meta.json (renderer-supplied). #}
+{% macro slot(name, text, cls, tag="div") -%}
+<{{ tag }} class="{{ cls }}" data-slot="{{ name }}" data-max-font="{{ fit[name].max_font }}" data-min-font="{{ fit[name].min_font }}" data-max-lines="{{ fit[name].max_lines }}" dir="auto">{{ text }}</{{ tag }}>
+{%- endmacro %}

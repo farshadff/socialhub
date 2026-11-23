@@ -1,112 +1,128 @@
-"""Web search collector: Claude with the web search tool, then a structured extraction call
-(E02-S02 rules 27–30 and the AI section).
-"""
+"""Web search collector: one Claude search call, then one structured extraction call.
 
-from __future__ import annotations
+E02-S02 rules 27-30 and the AI section. Every kept signal's URL must be one of the URLs the
+search call actually returned (rule 28).
+"""
 
 from datetime import UTC, datetime, time, timedelta
 
-from apps.ai.errors import AIError, ProviderNotConfigured, ProviderRefused
-from apps.ai.gateway import WebSearchOptions, run_text
-
+from ..models import SignalKind
+from ..schemas import ExtractedSignals
+from ..services import platform
 from ..services.fingerprints import InvalidURL, normalize_url
-from .base import CollectorContext, CollectorError, SignalDraft
+from .base import CollectContext, CollectorError, SignalDraft
 
-MAX_SIGNALS = 8
 MIN_RELEVANCE = 30
-MAX_SEARCHES = 5
+MAX_SIGNALS = 8
 
 
-def _audience(ctx: CollectorContext) -> str:
-    if ctx.plan is not None and ctx.plan.audience_summary:
-        return ctx.plan.audience_summary
-    return getattr(ctx.brand, "audience_summary", "") or ""
+def _audience(ctx: CollectContext) -> str:
+    plan_audience = getattr(ctx.plan, "audience_summary", "") if ctx.plan else ""
+    return plan_audience or (getattr(ctx.brand, "audience_summary", "") if ctx.brand else "")
 
 
-def _call(task: str, ctx: CollectorContext, **kwargs):
+def _window(ctx: CollectContext) -> tuple[str, str]:
+    end = ctx.now.date()
+    start = end - timedelta(days=ctx.lookback_days)
+    return start.isoformat(), end.isoformat()
+
+
+def _call(task: str, **kwargs):
+    """One gateway call; provider failures become collector status codes (AI section)."""
     try:
-        return run_text(task, account_id=ctx.account.pk, job_id=ctx.job_id, **kwargs)
-    except ProviderRefused as exc:
-        raise CollectorError("refused") from exc
-    except ProviderNotConfigured as exc:
+        return platform.run_text(task, **kwargs)
+    except platform.ProviderNotConfigured as exc:
         raise CollectorError("provider_not_configured") from exc
-    except AIError as exc:
-        raise CollectorError("provider_error", exc.detail) from exc
+    except platform.AIError as exc:
+        code = "refused" if platform.is_refusal(exc) else "provider_error"
+        raise CollectorError(code) from exc
+
+
+def _citation_field(citation, name: str) -> str:
+    if isinstance(citation, dict):
+        return citation.get(name) or ""
+    return getattr(citation, name, "") or ""
 
 
 class WebSearchCollector:
-    kind = "web_search"
     max_signals = MAX_SIGNALS
 
-    def collect(self, source, ctx: CollectorContext) -> list[SignalDraft]:
-        window_end = ctx.now.astimezone(ctx.account.tz).date()
-        window_start = window_end - timedelta(days=ctx.lookback_days)
+    def collect(self, source, ctx: CollectContext) -> list[SignalDraft]:
+        window_start, window_end = _window(ctx)
         search = _call(
             "research.web_search",
-            ctx,
             variables={
                 "query": source.value,
-                "window_start": window_start.isoformat(),
-                "window_end": window_end.isoformat(),
+                "window_start": window_start,
+                "window_end": window_end,
                 "content_language": ctx.account.content_language,
                 "audience_summary": _audience(ctx),
                 "content_pillars": list(getattr(ctx.brand, "content_pillars", []) or []),
-                "objective": getattr(ctx.plan, "objective", "") or "",
+                "objective": getattr(ctx.plan, "objective", "") if ctx.plan else "",
             },
-            web_search=WebSearchOptions(max_uses=MAX_SEARCHES),
+            web_search=platform.WebSearchOptions(
+                max_uses=5, blocked_domains=platform.blocked_domains()
+            ),
+            account_id=ctx.account.pk,
+            job_id=ctx.job_id,
         )
-        if not search.citations:
-            return []
 
-        retrieved: dict[str, dict] = {}
-        for citation in search.citations:
+        results = []
+        allowed: dict[str, str] = {}
+        for citation in search.citations or []:
+            url, title = _citation_field(citation, "url"), _citation_field(citation, "title")
             try:
-                retrieved.setdefault(normalize_url(citation["url"]), citation)
+                key = normalize_url(url)
             except InvalidURL:
                 continue
-        if not retrieved:
+            if key not in allowed:
+                allowed[key] = url
+                results.append({"url": url, "title": title})
+        if not results:
             return []
 
-        extraction = _call(
+        search_text = search.data if isinstance(search.data, str) else str(search.data)
+        extracted = _call(
             "research.extract_signals",
-            ctx,
             variables={
-                "query": source.value,
-                "search_text": search.data,
-                "results": [
-                    {"url": c["url"], "title": c.get("title", "")} for c in retrieved.values()
-                ],
-                "window_start": window_start.isoformat(),
+                "search_text": search_text,
+                "results": results,
+                "window_start": window_start,
                 "max_signals": MAX_SIGNALS,
                 "content_language": ctx.account.content_language,
             },
+            schema=ExtractedSignals,
+            account_id=ctx.account.pk,
+            job_id=ctx.job_id,
         )
 
-        drafts: list[SignalDraft] = []
-        for item in extraction.data.signals:
+        drafts = []
+        for item in extracted.data.signals:
             try:
                 key = normalize_url(item.url)
             except InvalidURL:
                 continue
-            citation = retrieved.get(key)
-            # Keep only links the search really returned (rule 28).
-            if citation is None or item.relevance < MIN_RELEVANCE:
+            if key not in allowed or item.relevance < MIN_RELEVANCE:
                 continue
-            published_at = (
-                datetime.combine(item.published_at, time(0, 0), tzinfo=UTC)
+            published = (
+                datetime.combine(item.published_at, time.min, tzinfo=UTC)
                 if item.published_at
                 else None
             )
             drafts.append(
                 SignalDraft(
-                    kind=self.kind,
-                    url=citation["url"],
-                    title=item.title or citation.get("title", ""),
+                    kind=SignalKind.WEB_SEARCH,
+                    url=allowed[key],
+                    title=item.title,
                     excerpt=item.excerpt,
                     author=item.author,
-                    published_at=published_at,
+                    published_at=published,
                     metrics={},
-                    raw={"relevance": item.relevance, "query": source.value},
+                    raw={
+                        "relevance": item.relevance,
+                        "query": source.value,
+                        "ai_run_id": getattr(extracted, "ai_run_id", None),
+                    },
                 )
             )
-        return drafts[:MAX_SIGNALS]
+        return drafts

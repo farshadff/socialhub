@@ -1,0 +1,44 @@
+{
+  "key": "title",
+  "name": "Title",
+  "description": "Opening frame with a large headline and an optional line under it.",
+  "version": "1",
+  "image_slot": "optional",
+  "scrim": "dark",
+  "layouts": [
+    "4x5",
+    "9x16"
+  ],
+  "fields": {
+    "headline": {
+      "required": true,
+      "max_chars": 60,
+      "max_lines": 3,
+      "font": {
+        "4x5": {
+          "max_font": 104,
+          "min_font": 56
+        },
+        "9x16": {
+          "max_font": 120,
+          "min_font": 64
+        }
+      }
+    },
+    "body": {
+      "required": false,
+      "max_chars": 120,
+      "max_lines": 3,
+      "font": {
+        "4x5": {
+          "max_font": 44,
+          "min_font": 30
+        },
+        "9x16": {
+          "max_font": 50,
+          "min_font": 32
+        }
+      }
+    }
+  }
+}

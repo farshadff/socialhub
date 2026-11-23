@@ -1,0 +1,5 @@
+{% from "_base/slots.j2" import slot with context %}
+{% if headline or body %}<div class="caption-panel">
+{% if headline %}{{ slot("headline", headline, "headline", "h1") }}{% endif %}
+{% if body %}{{ slot("body", body, "body", "p") }}{% endif %}
+</div>{% endif %}

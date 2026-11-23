@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Social Hub API
   version: 1.0.0
-  description: Local fixture API. All listed sample content is synthetic.
+  description: Social Hub panel API. Session cookie plus `X-CSRFToken` on unsafe methods; see docs/API.md.
 servers:
   - url: http://localhost:8000
 paths:
@@ -34,7 +34,7 @@ paths:
                 type: object
                 required: [status]
                 properties:
-                  status: { type: string, const: alive }
+                  status: { type: string, const: ok }
         default:
           $ref: "#/components/responses/ApiError"
   /api/v1/health/ready/:
@@ -55,346 +55,1377 @@ paths:
                 $ref: "#/components/schemas/Readiness"
         default:
           $ref: "#/components/responses/ApiError"
-  /api/v1/demo/:
+  # --- E00 --- sign-in (E00-S01) and jobs (E00-S06) --------------------------------------------
+  /api/v1/auth/csrf/:
     get:
-      operationId: getLocalDemo
-      description: Returns deterministic synthetic source and model fixtures; never publishes.
+      operationId: getCsrfToken
+      description: Public. Sets the `csrftoken` cookie and returns the token for `X-CSRFToken`.
+      security: []
       responses:
         "200":
-          description: Local fixture adapter summary.
+          description: CSRF token.
           content:
             application/json:
               schema:
                 type: object
-                required: [mode, source_mode, account_timezone, source_provider, model_provider, publisher_provider, publishing_enabled, source_items, model_preview]
+                required: [csrf_token]
                 properties:
-                  mode: { type: string, const: local_fixture }
-                  source_mode: { type: string, const: combined }
-                  account_timezone: { type: string, const: Asia/Tehran }
-                  source_provider: { type: string, const: fixture }
-                  model_provider: { type: string, const: fixture }
-                  publisher_provider: { type: string, const: disabled }
-                  publishing_enabled: { type: boolean, const: false }
-                  source_items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/SyntheticSourceItem"
-                  model_preview:
-                    type: object
-                    required: [caption, is_synthetic]
-                    properties:
-                      caption: { type: string }
-                      is_synthetic: { type: boolean, const: true }
+                  csrf_token: { type: string }
         default:
           $ref: "#/components/responses/ApiError"
-  /api/v1/jobs/:
-    get:
-      operationId: listJobs
-      summary: Jobs (E00-S06). `account` is required for operators; admins may omit it or send `none`.
-      parameters:
-        - { name: account, in: query, schema: { type: string } }
-        - { name: kind, in: query, schema: { type: string }, description: Comma-separated exact kinds. }
-        - { name: kind_prefix, in: query, schema: { type: string } }
-        - { name: status, in: query, schema: { type: string }, description: Comma-separated. }
-        - { name: target_type, in: query, schema: { type: string } }
-        - { name: target_id, in: query, schema: { type: string } }
-        - { name: created_after, in: query, schema: { type: string, format: date-time } }
-        - { name: created_before, in: query, schema: { type: string, format: date-time } }
-        - { name: ordering, in: query, schema: { type: string, enum: [created_at, -created_at, finished_at, -finished_at] } }
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PageSize"
-      responses:
-        "200":
-          description: Page of jobs.
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Page"
-                  - properties:
-                      results: { type: array, items: { $ref: "#/components/schemas/Job" } }
-        default:
-          $ref: "#/components/responses/ApiError"
-  /api/v1/jobs/{id}/:
-    get:
-      operationId: getJob
-      parameters:
-        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
-      responses:
-        "200":
-          description: One job. System jobs are visible only to admins and to the user who started them.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Job" }
-        default:
-          $ref: "#/components/responses/ApiError"
-  /api/v1/research/sources/:
-    get:
-      operationId: listResearchSources
-      summary: Research watchlist (E02-S01).
-      parameters:
-        - $ref: "#/components/parameters/AccountRequired"
-        - { name: kind, in: query, schema: { type: string }, description: "Comma-separated: web_search, rss." }
-        - { name: active, in: query, schema: { type: string, enum: ["true", "false"] } }
-        - { name: ordering, in: query, schema: { type: string }, description: "kind, label, -last_run_at; default kind,label." }
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PageSize"
-      responses:
-        "200":
-          description: Page of sources.
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Page"
-                  - properties:
-                      results: { type: array, items: { $ref: "#/components/schemas/ResearchSource" } }
-        default:
-          $ref: "#/components/responses/ApiError"
+  /api/v1/auth/login/:
     post:
-      operationId: createResearchSource
+      operationId: login
       description: >-
-        Field codes: kind invalid_choice; value invalid, min_length, max_length, unique;
-        active limit_reached. 409 invalid_transition for an archived account.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/ResearchSourceInput" }
-      responses:
-        "201":
-          description: Created; the value is stored normalized.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ResearchSource" }
-        default:
-          $ref: "#/components/responses/ApiError"
-  /api/v1/research/sources/{id}/:
-    parameters:
-      - $ref: "#/components/parameters/Id"
-    patch:
-      operationId: updateResearchSource
-      description: Changeable fields value, label, active. Sending a different kind returns kind immutable.
+        Public; requires `X-CSRFToken`. `username` is trimmed and matched case-insensitively;
+        `password` is not trimmed. Five failed attempts per username and IP in 15 minutes return
+        `429 rate_limited` with `Retry-After` until the window passes; success clears the counter.
+      security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required: [username, password]
               properties:
-                value: { type: string }
-                label: { type: string, maxLength: 80 }
-                active: { type: boolean }
+                username: { type: string, minLength: 1, maxLength: 150 }
+                password: { type: string, minLength: 1, maxLength: 128 }
       responses:
         "200":
-          description: Updated source.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ResearchSource" }
-        default:
-          $ref: "#/components/responses/ApiError"
-    delete:
-      operationId: deleteResearchSource
-      description: Signals keep existing with source null. 409 job_in_progress while a run is running.
-      responses:
-        "204": { description: Deleted. }
-        default:
-          $ref: "#/components/responses/ApiError"
-  /api/v1/research/runs/:
-    get:
-      operationId: listResearchRuns
-      parameters:
-        - $ref: "#/components/parameters/AccountRequired"
-        - { name: plan, in: query, schema: { type: integer } }
-        - { name: status, in: query, schema: { type: string }, description: Comma-separated. }
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PageSize"
-      responses:
-        "200":
-          description: Runs, newest first.
+          description: Signed in. The session cookie is set and the CSRF token rotated.
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/Page"
-                  - properties:
-                      results: { type: array, items: { $ref: "#/components/schemas/ResearchRun" } }
+                type: object
+                required: [user, csrf_token]
+                properties:
+                  user: { $ref: "#/components/schemas/User" }
+                  csrf_token: { type: string }
+        "400":
+          description: "`validation_error` (`required`/`blank`/`max_length` per field) or `invalid_credentials` (wrong username or password, or inactive user; identical bodies apart from `request_id`)."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "403":
+          description: "`csrf_failed`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "429":
+          description: "`rate_limited`, `retryable` true."
+          headers:
+            Retry-After:
+              description: Seconds until another attempt is allowed.
+              schema: { type: integer }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/auth/logout/:
+    post:
+      operationId: logout
+      description: Requires `X-CSRFToken`. Deletes the session; also `204` without a session.
+      responses:
+        "204":
+          description: Signed out; the session cookie is cleared.
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/auth/me/:
+    get:
+      operationId: getCurrentUser
+      responses:
+        "200":
+          description: The signed-in user. Without a session, `403 authentication_required`.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user: { $ref: "#/components/schemas/User" }
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/jobs/:
+    get:
+      operationId: listJobs
+      description: >-
+        Both roles. `account` is required for operators (`400 validation_error`, code
+        `required`); admins may omit it to list across accounts. `account=none` lists system
+        jobs, which only admins and the user who started them can see.
+      parameters:
+        - { name: account, in: query, schema: { oneOf: [{ type: integer }, { type: string, const: none }] } }
+        - { name: kind, in: query, description: Comma-separated exact kinds, schema: { type: string } }
+        - { name: kind_prefix, in: query, description: "For example `production.`", schema: { type: string } }
+        - { name: status, in: query, description: Comma-separated statuses, schema: { type: string } }
+        - { name: target_type, in: query, schema: { type: string } }
+        - { name: target_id, in: query, schema: { type: string } }
+        - { name: created_after, in: query, schema: { type: string, format: date-time } }
+        - { name: created_before, in: query, schema: { type: string, format: date-time } }
+        - { name: ordering, in: query, schema: { type: string, enum: [created_at, -created_at, finished_at, -finished_at], default: -created_at } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: page_size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        "200":
+          description: A page of jobs.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobPage" }
+        "400":
+          description: "`validation_error` on `account`, `status` (`invalid_choice`), a date or `ordering`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/jobs/{id}/:
+    get:
+      operationId: getJob
+      description: Both roles. Unknown or malformed IDs and system jobs the user may not see are `404 not_found`.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: One job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        default:
+          $ref: "#/components/responses/ApiError"
+  # E00-S03 accounts, brand profile and fonts
+  /api/v1/accounts/:
+    get:
+      operationId: listAccounts
+      description: Both roles. Ordered by `handle`. Not account-scoped.
+      parameters:
+        - { name: status, in: query, description: "Comma-separated `active`, `archived` (or `all`); default both", schema: { type: string } }
+        - { name: search, in: query, description: "Case-insensitive match on `handle` and `display_name`", schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: page_size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        "200":
+          description: A page of accounts.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstagramAccountPage" }
+        "400":
+          description: "`validation_error` on `status` (`invalid_choice`)."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
         default:
           $ref: "#/components/responses/ApiError"
     post:
-      operationId: startResearchRun
-      summary: Start a research run (E02-S02). Returns a research.run job.
+      operationId: createAccount
       description: >-
-        Field codes: account does_not_exist; plan invalid; source_ids.<i> invalid; source_ids
-        no_active_sources; lookback_days min_value/max_value; non-field ("") nothing_to_do.
-        409 job_in_progress with error.details.job; 409 invalid_transition for an archived account;
-        503 provider_not_configured when synthesize is true and the AI provider is missing.
-        Omitting plan selects the earliest draft or active plan whose week has not ended; plan null means no plan.
+        Admin only (`403 permission_denied` for operators). Creates the account, its brand
+        profile with defaults and its connection (`provider` from
+        `SOCIALHUB_IG_DEFAULT_PROVIDER`, `status = disconnected`) in one transaction. `handle`
+        is normalised: surrounding spaces and a leading `@` are stripped and it is lowercased.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/ResearchRunInput" }
-      responses:
-        "202":
-          description: Job created.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/JobAccepted" }
-        default:
-          $ref: "#/components/responses/ApiError"
-  /api/v1/research/runs/{id}/:
-    parameters:
-      - $ref: "#/components/parameters/Id"
-    get:
-      operationId: getResearchRun
-      responses:
-        "200":
-          description: Run with per-source results.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ResearchRunDetail" }
-        default:
-          $ref: "#/components/responses/ApiError"
-  /api/v1/research/signals/:
-    get:
-      operationId: listTrendSignals
-      parameters:
-        - $ref: "#/components/parameters/AccountRequired"
-        - { name: run, in: query, schema: { type: integer } }
-        - { name: source, in: query, schema: { type: integer } }
-        - { name: kind, in: query, schema: { type: string }, description: Comma-separated. }
-        - { name: topic, in: query, schema: { type: integer } }
-        - { name: unassigned, in: query, schema: { type: string, enum: ["true", "false"] } }
-        - { name: q, in: query, schema: { type: string } }
-        - { name: captured_after, in: query, schema: { type: string, format: date-time } }
-        - { name: captured_before, in: query, schema: { type: string, format: date-time } }
-        - { name: ordering, in: query, schema: { type: string, enum: [-captured_at, captured_at, -published_at, published_at] } }
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PageSize"
-      responses:
-        "200":
-          description: Signals, newest first.
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Page"
-                  - properties:
-                      results: { type: array, items: { $ref: "#/components/schemas/TrendSignal" } }
-        default:
-          $ref: "#/components/responses/ApiError"
-    post:
-      operationId: createManualSignal
-      description: >-
-        Field codes: title required; non-field ("") url_or_excerpt_required; url invalid;
-        url or excerpt unique with error.details.signal_id; metrics.<key> invalid or min_value;
-        topic invalid. 409 invalid_transition when the topic is used or the account archived.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/ManualSignalInput" }
+            schema: { $ref: "#/components/schemas/InstagramAccountCreate" }
       responses:
         "201":
-          description: Manual signal created.
+          description: The new account.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/TrendSignal" }
-        default:
-          $ref: "#/components/responses/ApiError"
-  /api/v1/research/topics/:
-    get:
-      operationId: listTrendTopics
-      parameters:
-        - $ref: "#/components/parameters/AccountRequired"
-        - { name: plan, in: query, schema: { type: string }, description: Plan id, or none. }
-        - { name: run, in: query, schema: { type: integer } }
-        - { name: status, in: query, schema: { type: string }, description: Comma-separated. }
-        - { name: origin, in: query, schema: { type: string, enum: [ai, manual] } }
-        - { name: min_evidence, in: query, schema: { type: integer, minimum: 0, maximum: 100 } }
-        - { name: q, in: query, schema: { type: string } }
-        - { name: ordering, in: query, schema: { type: string, enum: [-evidence_score, evidence_score, -created_at, title] } }
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PageSize"
-      responses:
-        "200":
-          description: Topics, highest evidence first by default.
+              schema: { $ref: "#/components/schemas/InstagramAccount" }
+        "400":
+          description: >-
+            `validation_error`: `handle` (`invalid`, `unique` — archived accounts included,
+            any letter case), `display_name` (`blank`, `max_length`), `timezone` (`invalid`),
+            `content_language` (`invalid_choice`), `week_start_day` (`min_value`, `max_value`).
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Page"
-                  - properties:
-                      results: { type: array, items: { $ref: "#/components/schemas/TrendTopic" } }
+              schema: { $ref: "#/components/schemas/ApiError" }
         default:
           $ref: "#/components/responses/ApiError"
-    post:
-      operationId: createManualTopic
-      description: >-
-        Creates origin manual, status shortlisted. Field codes: title min_length, max_length, unique;
-        hooks.<i> max_length; suggested_formats.<i> invalid_choice; signal_ids.<i> does_not_exist; plan invalid.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              allOf:
-                - $ref: "#/components/schemas/TopicInput"
-                - required: [account, title]
-                  properties:
-                    account: { type: integer }
-      responses:
-        "201":
-          description: Topic with computed evidence.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/TrendTopic" }
-        default:
-          $ref: "#/components/responses/ApiError"
-  /api/v1/research/topics/{id}/:
+  /api/v1/accounts/{id}/:
     parameters:
-      - $ref: "#/components/parameters/Id"
+      - { name: id, in: path, required: true, schema: { type: integer } }
     get:
-      operationId: getTrendTopic
+      operationId: getAccount
+      description: Both roles. Unknown IDs are `404 not_found`.
       responses:
         "200":
-          description: Topic with its signals embedded, newest first.
+          description: One account.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/TrendTopicDetail" }
+              schema: { $ref: "#/components/schemas/InstagramAccount" }
         default:
           $ref: "#/components/responses/ApiError"
     patch:
-      operationId: updateTrendTopic
+      operationId: updateAccount
       description: >-
-        Status follows the transition table (new→shortlisted|dismissed, shortlisted→new|dismissed,
-        dismissed→new); otherwise 409 invalid_transition with error.details.allowed_statuses.
-        A used topic is read-only. Editing content of a new topic without sending status shortlists it.
-        signal_ids replaces the list and recomputes the evidence score.
+        Both roles; `handle`, `status`, `publishing_enabled` and `autopilot` are admin only (an
+        operator sending any of them gets `403 permission_denied` and nothing is saved).
+        `autopilot` and `posting_rules` may hold a subset of keys, merged into the stored
+        object; unknown keys are rejected. Archiving sets `publishing_enabled` to false;
+        restoring leaves it off. There is no `PUT` or `DELETE`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InstagramAccountUpdate" }
+      responses:
+        "200":
+          description: The updated account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstagramAccount" }
+        "400":
+          description: >-
+            `validation_error` with paths such as `posting_rules.min_gap_minutes`
+            (`min_value`/`max_value`), `autopilot.publish` (`invalid`), `status`
+            (`invalid_choice`), `handle` (`invalid`, `unique`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "409":
+          description: >-
+            `instagram_not_connected` when turning `publishing_enabled` on while the
+            connection is not `connected` or `expiring` (`details.status` is the connection
+            status). `invalid_transition` when changing `handle` while the connection is not
+            `disconnected` (`details.status` is the connection status, `details.reason` is
+            `connection_not_disconnected`), or when turning publishing on for an archived
+            account (`details.reason` is `account_archived`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/accounts/{id}/brand/:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      operationId: getBrandProfile
+      description: Both roles.
+      responses:
+        "200":
+          description: The account's brand profile.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrandProfile" }
+        default:
+          $ref: "#/components/responses/ApiError"
+    put:
+      operationId: replaceBrandProfile
+      description: >-
+        Both roles. Replaces every editable field (all required). `logo_light`/`logo_dark` may
+        be sent as `null` to remove that logo; any other value for them is ignored. Colours are
+        stored uppercase; hashtags lose a leading `#` and are de-duplicated case-insensitively.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BrandProfileWrite" }
+      responses:
+        "200":
+          description: The saved brand profile, with non-blocking `warnings`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrandProfile" }
+        "400":
+          description: >-
+            `validation_error`: `colors.accent` (`required`, `invalid`), `fonts.heading`
+            (`does_not_exist`), `content_pillars` (`max_length`), `banned_terms.3`
+            (`max_length`), `default_hashtags.0` (`invalid`), and so on.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/accounts/{id}/brand/logo/:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    post:
+      operationId: uploadBrandLogo
+      description: >-
+        Both roles. PNG (256–4096 px on each side) or SVG, at most 2 MB. Unsafe SVGs (a
+        `<script>` element, an `on…` attribute, a reference outside `#…`/`data:`, entity
+        declarations) are refused. A new upload replaces the variant's previous file.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, variant]
+              properties:
+                file: { type: string, format: binary }
+                variant: { type: string, enum: [light, dark] }
+      responses:
+        "200":
+          description: The brand profile with the new logo URL.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrandProfile" }
+        "400":
+          description: >-
+            `validation_error` on `variant` or `file` (`required`, `invalid_choice`), or
+            `unsupported_media` on `file` with `reason` `type_not_allowed`,
+            `extension_mismatch`, `empty_file`, `invalid_image`, `dimensions_out_of_range`,
+            `invalid_svg`, `svg_script`, `svg_event_handler` or `svg_external_reference`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "413":
+          description: "`payload_too_large` above 2 MB (`details.max_bytes`)."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/fonts/:
+    get:
+      operationId: listFonts
+      description: Both roles. The bundled fonts; not paginated.
+      responses:
+        "200":
+          description: Every bundled font with absolute URLs of its static files.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results: { type: array, items: { $ref: "#/components/schemas/Font" } }
+        default:
+          $ref: "#/components/responses/ApiError"
+  # E00-S05: system status, AI test and the AI run log (admin only; operators get 403).
+  /api/v1/system/status/:
+    get:
+      operationId: getSystemStatus
+      description: >-
+        Admin only. Integration status; never returns secret values. `ai.*.configured` is true
+        when the provider is `fake`, or its key and model setting are present. Workers use a
+        one-second inspect and report `unknown` when the broker cannot be asked.
+      responses:
+        "200":
+          description: Status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SystemStatus" }
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/system/ai-test/:
+    post:
+      operationId: startAiTest
+      description: >-
+        Admin only. Starts a `system.ai_test` job: one `system.ping` text call and one `square`
+        image (discarded). The job succeeds whenever it ran; each provider's outcome is in
+        `result` (`AiTestResult`). Real providers are billed for the test.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                providers:
+                  type: array
+                  minItems: 1
+                  items: { type: string, enum: [text, image] }
+                  default: [text, image]
+      responses:
+        "202":
+          description: The queued job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobAccepted" }
+        "400":
+          description: "`validation_error` on `providers`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "409":
+          description: "`job_in_progress`: a test job is already queued or running."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/ai/runs/:
+    get:
+      operationId: listAiRuns
+      description: Admin only. `totals` covers the whole filtered set, not just the page.
+      parameters:
+        - { name: account, in: query, schema: { type: integer } }
+        - { name: task, in: query, schema: { type: string } }
+        - { name: provider, in: query, schema: { type: string, enum: [anthropic, openai, fake] } }
+        - { name: status, in: query, schema: { type: string, enum: [ok, error, refused] } }
+        - { name: job, in: query, schema: { type: string, format: uuid } }
+        - { name: created_after, in: query, schema: { type: string, format: date-time } }
+        - { name: created_before, in: query, schema: { type: string, format: date-time } }
+        - { name: ordering, in: query, schema: { type: string, enum: [-created_at, created_at, -cost_usd, -latency_ms], default: -created_at } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: page_size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        "200":
+          description: A page of AI runs with totals.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiRunPage" }
+        "400":
+          description: "`validation_error` on a filter or `ordering`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/ai/runs/{id}/:
+    get:
+      operationId: getAiRun
+      description: Admin only. The list object plus `payload` (null after 30 days).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: One AI run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiRunDetail" }
+        default:
+          $ref: "#/components/responses/ApiError"
+  # E00-S04: Instagram connection and the public OAuth callback. `{id}` is the account ID.
+  # `graph_api` is a reserved provider until its adapter exists: choosing or connecting it
+  # answers `503 provider_not_configured` with `details.reason = "adapter_not_built"`.
+  /api/v1/accounts/{id}/connection/:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      operationId: getAccountConnection
+      description: Both roles. Never returns the token, only `has_token`. Unknown account is `404 not_found`.
+      responses:
+        "200":
+          description: The connection.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccountConnection" }
+        default:
+          $ref: "#/components/responses/ApiError"
+    patch:
+      operationId: chooseConnectionProvider
+      description: >-
+        Admin only. Changes the provider only while `disconnected`. `manual` connects at once
+        with every capability false; `fake` (and later `graph_api`) only stores the choice.
+        Choosing the current provider again changes nothing (except `manual` on a
+        disconnected connection, which connects it).
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              allOf:
-                - $ref: "#/components/schemas/TopicInput"
-                - properties:
-                    status: { type: string, enum: [new, shortlisted, dismissed] }
+              type: object
+              required: [provider]
+              properties:
+                provider: { $ref: "#/components/schemas/ConnectionProvider" }
       responses:
         "200":
-          description: Updated topic.
+          description: The connection after the change.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/TrendTopicDetail" }
+              schema: { $ref: "#/components/schemas/AccountConnection" }
+        "400":
+          description: "`validation_error` on `provider` (`required`, or `invalid` when not in `allowed_providers`)."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "409":
+          description: >-
+            `invalid_transition`: status not `disconnected` (`details.status`,
+            `details.reason = "connection_not_disconnected"`) or archived account
+            (`details.reason = "account_archived"`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "503":
+          description: "`provider_not_configured` for `graph_api` (`details.provider`, `details.missing`, `details.reason`)."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
         default:
           $ref: "#/components/responses/ApiError"
+    delete:
+      operationId: disconnectAccountConnection
+      description: >-
+        Admin only. Deletes the token, clears the identity, token dates, scopes and errors,
+        sets every capability false, the status `disconnected` and the account's
+        `publishing_enabled` false, and cancels a queued `instagram.verify` or
+        `instagram.refresh_token` job. The provider choice is kept. Idempotent.
+      responses:
+        "204": { description: Disconnected (or already disconnected). }
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/accounts/{id}/connection/connect/:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    post:
+      operationId: startInstagramConnect
+      description: >-
+        Admin only. No body. Stores a single-use OAuth `state` for 10 minutes and returns the
+        authorize URL. With `fake`, the URL points straight at the callback with the account's
+        scripted code (`fake-ok` by default). Works in any status except on archived accounts.
+      responses:
+        "200":
+          description: Where to send the browser.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authorize_url, expires_at]
+                properties:
+                  authorize_url: { type: string, format: uri }
+                  expires_at: { type: string, format: date-time }
+        "409":
+          description: "`invalid_transition` with `details.reason` `manual_provider` or `account_archived`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "503":
+          description: "`provider_not_configured` for `graph_api` (`details.provider`, `details.missing`, `details.reason`)."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/accounts/{id}/connection/verify/:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    post:
+      operationId: verifyAccountConnection
+      description: >-
+        Both roles. No body. Starts `instagram.verify` (target `account_connection`, target_id
+        the account ID). The finished job has `result.connection_status`; `error_code` is one of
+        `token_invalid`, `permission_missing`, `account_mismatch`, `not_professional`,
+        `rate_limited`, `provider_error`.
+      responses:
+        "202":
+          description: The queued job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobAccepted" }
+        "409":
+          description: >-
+            `instagram_not_connected` (no token); `invalid_transition` with `details.reason`
+            `manual_provider` or `account_archived`; `job_in_progress` (`details.job`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/accounts/{id}/connection/refresh-token/:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    post:
+      operationId: refreshAccountConnectionToken
+      description: >-
+        Admin only. No body. Starts `instagram.refresh_token`; the finished job's `result` has
+        `connection_status` and `token_expires_at`.
+      responses:
+        "202":
+          description: The queued job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobAccepted" }
+        "409":
+          description: >-
+            `instagram_not_connected` (status `disconnected` or `needs_attention`);
+            `invalid_transition` with `details.reason` `manual_provider`, `account_archived` or
+            `token_refreshed_recently` (plus `details.retry_after`); `job_in_progress`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        default:
+          $ref: "#/components/responses/ApiError"
+  /api/v1/instagram/oauth/callback/:
+    get:
+      operationId: instagramOAuthCallback
+      security: []
+      description: >-
+        Public; Instagram's OAuth redirect. Always `302`, never JSON, with
+        `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. Success:
+        `{SOCIALHUB_PANEL_URL}/settings/accounts/{id}?tab=connection&connect=success`. Failure:
+        `…&connect=error&code={code}` with `oauth_state_invalid`, `oauth_denied`,
+        `oauth_exchange_failed`, `permission_missing`, `account_mismatch`, `not_professional`,
+        `rate_limited` or `provider_error`; an unknown, expired or used state goes to
+        `{SOCIALHUB_PANEL_URL}/settings/accounts?connect=error&code=oauth_state_invalid`.
+      parameters:
+        - { name: state, in: query, schema: { type: string } }
+        - { name: code, in: query, schema: { type: string } }
+        - { name: error, in: query, schema: { type: string } }
+        - { name: error_reason, in: query, schema: { type: string } }
+        - { name: error_description, in: query, schema: { type: string } }
+      responses:
+        "302":
+          description: Redirect to the panel.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+  # --- end E00 paths ---
+  # --- E02 --- trend research paths (docs/epics/E02-trend-research) -------------------------
+  /api/v1/research/sources/:
+    get:
+      summary: List the account's research sources (E02-S01)
+      operationId: listResearchSources
+      parameters:
+        - { $ref: "#/components/parameters/E02Account" }
+        - { name: kind, in: query, schema: { type: string }, description: "Comma-separated: web_search, rss" }
+        - { name: active, in: query, schema: { type: boolean } }
+        - { name: ordering, in: query, schema: { type: string, enum: [kind, label, -last_run_at], default: "kind,label" } }
+        - { $ref: "#/components/parameters/E02Page" }
+        - { $ref: "#/components/parameters/E02PageSize" }
+      responses:
+        "200":
+          description: Sources
+          content: { application/json: { schema: { $ref: "#/components/schemas/ResearchSourcePage" } } }
+        default: { $ref: "#/components/responses/ApiError" }
+    post:
+      summary: Add a source; the value is normalized (E02-S01)
+      description: "Field codes: kind invalid_choice; value invalid, min_length, max_length, unique; active limit_reached. 409 invalid_transition for an archived account."
+      operationId: createResearchSource
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ResearchSourceWrite" } } }
+      responses:
+        "201":
+          description: Created
+          content: { application/json: { schema: { $ref: "#/components/schemas/ResearchSource" } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/research/sources/{id}/:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    patch:
+      summary: Change value, label or active (E02-S01)
+      description: "Sending a different kind returns 400 with kind: immutable."
+      operationId: updateResearchSource
+      requestBody:
+        content: { application/json: { schema: { $ref: "#/components/schemas/ResearchSourceWrite" } } }
+      responses:
+        "200":
+          description: Updated
+          content: { application/json: { schema: { $ref: "#/components/schemas/ResearchSource" } } }
+        default: { $ref: "#/components/responses/ApiError" }
+    delete:
+      summary: Delete a source; its signals are kept (E02-S01)
+      description: "409 job_in_progress with error.details.job while a research run is running."
+      operationId: deleteResearchSource
+      responses:
+        "204": { description: Deleted }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/research/runs/:
+    get:
+      summary: Research run history, newest first (E02-S02)
+      operationId: listResearchRuns
+      parameters:
+        - { $ref: "#/components/parameters/E02Account" }
+        - { name: plan, in: query, schema: { type: integer } }
+        - { name: status, in: query, schema: { type: string }, description: "Comma-separated: running, completed, failed" }
+        - { $ref: "#/components/parameters/E02Page" }
+        - { $ref: "#/components/parameters/E02PageSize" }
+      responses:
+        "200":
+          description: Runs
+          content: { application/json: { schema: { $ref: "#/components/schemas/ResearchRunPage" } } }
+        default: { $ref: "#/components/responses/ApiError" }
+    post:
+      summary: Start a research run; returns the research.run job (E02-S02)
+      description: "Field codes: plan invalid; source_ids.<i> invalid; source_ids no_active_sources; lookback_days min_value/max_value; non_field_errors nothing_to_do. 409 job_in_progress (details.job), 409 invalid_transition (archived account), 503 provider_not_configured when synthesize is true. When plan is omitted the earliest draft or active plan whose week has not ended is used."
+      operationId: startResearchRun
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ResearchRunStart" } } }
+      responses:
+        "202":
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job]
+                properties: { job: { type: object, description: "Full job object (docs/API.md, Long actions). Result on success: {run_id, signals, duplicates, topics}." } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/research/runs/{id}/:
+    get:
+      summary: One run with per-source results (E02-S02)
+      operationId: getResearchRun
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Run
+          content: { application/json: { schema: { $ref: "#/components/schemas/ResearchRunDetail" } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/research/signals/:
+    get:
+      summary: List signals, newest first (E02-S02)
+      operationId: listTrendSignals
+      parameters:
+        - { $ref: "#/components/parameters/E02Account" }
+        - { name: id, in: query, schema: { type: integer }, description: One signal, for linking to an existing duplicate }
+        - { name: run, in: query, schema: { type: integer } }
+        - { name: source, in: query, schema: { type: integer } }
+        - { name: kind, in: query, schema: { type: string }, description: "Comma-separated: web_search, rss, manual" }
+        - { name: topic, in: query, schema: { type: integer } }
+        - { name: unassigned, in: query, schema: { type: boolean } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: captured_after, in: query, schema: { type: string, format: date-time } }
+        - { name: captured_before, in: query, schema: { type: string, format: date-time } }
+        - { name: ordering, in: query, schema: { type: string, enum: [-captured_at, captured_at, -published_at, published_at], default: -captured_at } }
+        - { $ref: "#/components/parameters/E02Page" }
+        - { $ref: "#/components/parameters/E02PageSize" }
+      responses:
+        "200":
+          description: Signals
+          content: { application/json: { schema: { $ref: "#/components/schemas/TrendSignalPage" } } }
+        default: { $ref: "#/components/responses/ApiError" }
+    post:
+      summary: Add a manual signal (E02-S02)
+      description: "Field codes: title required; non_field_errors url_or_excerpt_required; url invalid; url or excerpt unique with error.details.signal_id; metrics.<key> invalid or min_value; topic invalid. 409 invalid_transition when the topic is used."
+      operationId: createManualSignal
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ManualSignalWrite" } } }
+      responses:
+        "201":
+          description: Created
+          content: { application/json: { schema: { $ref: "#/components/schemas/TrendSignal" } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/research/topics/:
+    get:
+      summary: List topics, highest evidence first (E02-S04)
+      operationId: listTrendTopics
+      parameters:
+        - { $ref: "#/components/parameters/E02Account" }
+        - { name: plan, in: query, schema: { type: string }, description: "Plan ID, or none" }
+        - { name: run, in: query, schema: { type: integer } }
+        - { name: status, in: query, schema: { type: string }, description: "Comma-separated: new, shortlisted, dismissed, used" }
+        - { name: origin, in: query, schema: { type: string, enum: [ai, manual] } }
+        - { name: min_evidence, in: query, schema: { type: integer, minimum: 0, maximum: 100 } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: ordering, in: query, schema: { type: string, enum: [-evidence_score, evidence_score, -created_at, title], default: -evidence_score } }
+        - { $ref: "#/components/parameters/E02Page" }
+        - { $ref: "#/components/parameters/E02PageSize" }
+      responses:
+        "200":
+          description: Topics
+          content: { application/json: { schema: { $ref: "#/components/schemas/TrendTopicPage" } } }
+        default: { $ref: "#/components/responses/ApiError" }
+    post:
+      summary: Add a manual topic; it starts shortlisted (E02-S04)
+      description: "Field codes: title required/min_length/max_length/unique; hooks.<i> max_length; suggested_formats.<i> invalid_choice; signal_ids.<i> does_not_exist; plan invalid. 409 invalid_transition for an archived account."
+      operationId: createTrendTopic
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/TrendTopicWrite" } } }
+      responses:
+        "201":
+          description: Created
+          content: { application/json: { schema: { $ref: "#/components/schemas/TrendTopicDetail" } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/research/topics/{id}/:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      summary: Topic with its signals (E02-S05)
+      operationId: getTrendTopic
+      responses:
+        "200":
+          description: Topic
+          content: { application/json: { schema: { $ref: "#/components/schemas/TrendTopicDetail" } } }
+        default: { $ref: "#/components/responses/ApiError" }
+    patch:
+      summary: Change status, edit content, replace signals (E02-S05)
+      description: "Editing content or signals on a new topic also shortlists it. used topics are read-only. 409 invalid_transition with details.status and details.allowed_statuses. origin, account and evidence fields are read-only and ignored."
+      operationId: updateTrendTopic
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: "#/components/schemas/TrendTopicWrite" }
+                - type: object
+                  properties: { status: { type: string, enum: [new, shortlisted, dismissed] } }
+      responses:
+        "200":
+          description: Updated
+          content: { application/json: { schema: { $ref: "#/components/schemas/TrendTopicDetail" } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  # --- end E02 paths ---
+  # --- E01 --- weekly plan paths (docs/epics/E01-weekly-plan) -------------------------------
+  /api/v1/plans/:
+    get:
+      summary: List plans for an account (E01-S01)
+      parameters:
+        - { name: account, in: query, required: true, schema: { type: integer } }
+        - { name: status, in: query, description: "Comma-separated: draft, active, closed", schema: { type: string } }
+        - { name: week_start_after, in: query, schema: { type: string, format: date } }
+        - { name: week_start_before, in: query, schema: { type: string, format: date } }
+        - { name: ordering, in: query, schema: { type: string, enum: [week_start, -week_start], default: -week_start } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: page_size, in: query, schema: { type: integer, maximum: 100 } }
+      responses:
+        "200": { description: Plan list rows, content: { application/json: { schema: { $ref: "#/components/schemas/PlanRowPage" } } } }
+        "400": { $ref: "#/components/responses/ApiError" }
+        "404": { $ref: "#/components/responses/ApiError" }
+    post:
+      summary: Create a draft plan for a week (E01-S01)
+      description: >
+        Field codes on `week_start`: invalid_week_start, out_of_range, unique. On `account`:
+        account_archived, does_not_exist.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [account, week_start]
+              properties:
+                account: { type: integer }
+                week_start: { type: string, format: date }
+                title: { type: string, maxLength: 120 }
+                generate_slots: { type: boolean, default: true }
+      responses:
+        "201": { description: Created plan, content: { application/json: { schema: { $ref: "#/components/schemas/WeeklyPlan" } } } }
+        "400": { $ref: "#/components/responses/ApiError" }
+  /api/v1/plans/current/:
+    get:
+      summary: The working plan for an account (E01-S01 rule 13)
+      parameters:
+        - { name: account, in: query, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Active plan for this week, else the nearest future active plan, content: { application/json: { schema: { $ref: "#/components/schemas/WeeklyPlan" } } } }
+        "404": { $ref: "#/components/responses/ApiError" }
+  /api/v1/plans/{id}/:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      summary: Read a plan (E01-S01)
+      responses:
+        "200": { description: Plan, content: { application/json: { schema: { $ref: "#/components/schemas/WeeklyPlan" } } } }
+        "404": { $ref: "#/components/responses/ApiError" }
+    patch:
+      summary: Update a plan; goals are replaced as a full list (E01-S01)
+      description: >
+        Draft and active plans accept every field below; closed plans accept only `notes`
+        (otherwise 409 invalid_transition with details.status and details.fields). Sending
+        `week_start`, `account`, `week_end` or `status` is 400 with field code read_only. Goal
+        field codes: invalid_choice, invalid_combination, duplicate, min_value, max_value,
+        max_length, does_not_exist.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/PlanUpdate" } } }
+      responses:
+        "200": { description: Updated plan, content: { application/json: { schema: { $ref: "#/components/schemas/WeeklyPlan" } } } }
+        "400": { $ref: "#/components/responses/ApiError" }
+        "409": { $ref: "#/components/responses/ApiError" }
+    delete:
+      summary: Delete a draft plan with its goals and slots (E01-S01)
+      responses:
+        "204": { description: Deleted }
+        "409": { $ref: "#/components/responses/ApiError" }
+  /api/v1/plans/{id}/activate/:
+    post:
+      summary: Draft to active when ready (E01-S03)
+      description: 409 invalid_transition with details.status, and details.problems when not ready.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Active plan, content: { application/json: { schema: { $ref: "#/components/schemas/WeeklyPlan" } } } }
+        "409": { $ref: "#/components/responses/ApiError" }
+  /api/v1/plans/{id}/close/:
+    post:
+      summary: Active to closed; open slots become skipped (E01-S03)
+      description: >
+        Before the week has ended (account timezone) `force: true` is required, otherwise 409
+        invalid_transition with details.reason week_not_ended and details.week_end.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { force: { type: boolean, default: false } } } } }
+      responses:
+        "200":
+          description: Closed plan and counts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [plan, slots_skipped, unfinished_items]
+                properties:
+                  plan: { $ref: "#/components/schemas/WeeklyPlan" }
+                  slots_skipped: { type: integer }
+                  unfinished_items: { type: integer }
+        "409": { $ref: "#/components/responses/ApiError" }
+  /api/v1/plans/{id}/duplicate/:
+    post:
+      summary: Copy a plan to another week as a draft (E01-S03)
+      description: Same week_start validation as creating a plan. Defaults to the following week.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                week_start: { type: string, format: date }
+                copy_slots: { type: boolean, default: true }
+      responses:
+        "201": { description: New draft plan, content: { application/json: { schema: { $ref: "#/components/schemas/WeeklyPlan" } } } }
+        "400": { $ref: "#/components/responses/ApiError" }
+  /api/v1/plans/{id}/slots/:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      summary: List a plan's slots by time (E01-S02)
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: format, in: query, schema: { type: string } }
+        - { name: page_size, in: query, schema: { type: integer, default: 100, maximum: 100 } }
+      responses:
+        "200": { description: Slots, content: { application/json: { schema: { $ref: "#/components/schemas/PlanSlotPage" } } } }
+    post:
+      summary: Add a slot (E01-S02)
+      description: >
+        Field codes on `scheduled_at`: outside_week, too_soon, unique, exceeds_daily_limit,
+        gap_too_small; `non_field_errors` max_slots. 409 invalid_transition when the plan is closed.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/PlanSlotWrite" } } }
+      responses:
+        "201": { description: Slot, content: { application/json: { schema: { $ref: "#/components/schemas/PlanSlot" } } } }
+        "400": { $ref: "#/components/responses/ApiError" }
+        "409": { $ref: "#/components/responses/ApiError" }
+  /api/v1/plans/{id}/slots/generate/:
+    post:
+      summary: Create slots from the account's slot template (E01-S02)
+      description: "`non_field_errors` codes no_template, max_slots; 409 when the plan is closed."
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { replace: { type: boolean, default: false } } } } }
+      responses:
+        "200":
+          description: Counts and the plan's full slot list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [created, skipped, deleted, slots]
+                properties:
+                  created: { type: integer }
+                  skipped: { type: integer }
+                  deleted: { type: integer }
+                  slots: { type: array, items: { $ref: "#/components/schemas/PlanSlot" } }
+        "400": { $ref: "#/components/responses/ApiError" }
+        "409": { $ref: "#/components/responses/ApiError" }
+  /api/v1/slots/{id}/:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      summary: Read a slot
+      responses:
+        "200": { description: Slot, content: { application/json: { schema: { $ref: "#/components/schemas/PlanSlot" } } } }
+    patch:
+      summary: Change, skip or restore a slot (E01-S02 rule 14)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/PlanSlotWrite" } } }
+      responses:
+        "200": { description: Slot, content: { application/json: { schema: { $ref: "#/components/schemas/PlanSlot" } } } }
+        "400": { $ref: "#/components/responses/ApiError" }
+        "409": { $ref: "#/components/responses/ApiError" }
+    delete:
+      summary: Delete an open or skipped slot
+      responses:
+        "204": { description: Deleted }
+        "409": { $ref: "#/components/responses/ApiError" }
+  /api/v1/accounts/{id}/slot-template/:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      summary: The account's usual week (E01-S02)
+      responses:
+        "200": { description: Template, content: { application/json: { schema: { $ref: "#/components/schemas/SlotTemplate" } } } }
+    put:
+      summary: Replace the whole template (E01-S02)
+      description: >
+        Row field codes (path rows.N.field): unique, invalid_step, exceeds_daily_limit (on
+        format), gap_too_small (on local_time); `rows` max_length 40.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rows]
+              properties:
+                rows: { type: array, maxItems: 40, items: { $ref: "#/components/schemas/SlotTemplateRow" } }
+      responses:
+        "200": { description: Stored template, content: { application/json: { schema: { $ref: "#/components/schemas/SlotTemplate" } } } }
+        "400": { $ref: "#/components/responses/ApiError" }
+  # --- end E01 paths ---
+  # --- E03-S04 / E04 / E05 / E06 --- content items, briefs, scripts, assets, production ------------
+  /api/v1/formats/:
+    get:
+      summary: Format registry with roles, script rules and frame templates (E04-S01, E04-S02, E05-S01)
+      description: Sends `ETag` and `Cache-Control private, max-age=3600`; a matching `If-None-Match` returns 304.
+      responses:
+        "200": { description: Registry, content: { application/json: { schema: { $ref: "#/components/schemas/FormatsResponse" } } } }
+        "304": { description: Not modified }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/:
+    get:
+      summary: Pipeline list (E03-S04)
+      parameters:
+        - { name: account, in: query, required: true, schema: { type: integer } }
+        - { name: plan, in: query, schema: { type: integer } }
+        - { name: status, in: query, schema: { type: string }, description: Comma-separated }
+        - { name: format, in: query, schema: { type: string } }
+        - { name: role, in: query, schema: { type: string }, description: "Comma-separated; `none` matches items without a role" }
+        - { name: production_mode, in: query, schema: { type: string } }
+        - { name: needs_attention, in: query, schema: { type: boolean } }
+        - { name: has_active_job, in: query, schema: { type: boolean } }
+        - { name: slot_from, in: query, schema: { type: string, format: date-time } }
+        - { name: slot_to, in: query, schema: { type: string, format: date-time } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: ordering, in: query, schema: { type: string, enum: [slot_time, -slot_time, -updated_at, -created_at, status], default: slot_time } }
+      responses:
+        "200": { description: Item summaries, content: { application/json: { schema: { $ref: "#/components/schemas/ContentItemPage" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/:
+    get:
+      summary: Item detail with nested summaries and allowed_actions (E03-S04)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: Item, content: { application/json: { schema: { $ref: "#/components/schemas/ContentItemDetail" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+    patch:
+      summary: Set format, media kind, production mode, role or slot (E04-S02)
+      description: >
+        Field codes: read_only, invalid_combination (details.allowed_values), slot_wrong_plan,
+        slot_not_open, slot_in_past, slot_format_mismatch (details.open_slots), role_required,
+        confirmation_required (details.would_supersede). The response adds `effects`.
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                format: { $ref: "#/components/schemas/PlanFormat" }
+                media_kind: { type: string, enum: [image, video] }
+                production_mode: { type: string, enum: [design, motion, video] }
+                role: { allOf: [{ $ref: "#/components/schemas/PlanRole" }], nullable: true }
+                slot: { type: integer, nullable: true }
+                confirm: { type: boolean }
+      responses:
+        "200": { description: Item with effects, content: { application/json: { schema: { $ref: "#/components/schemas/ContentItemDetail" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/cancel/:
+    post:
+      summary: Cancel an item (E03-S04)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [reason], properties: { reason: { type: string, minLength: 3, maxLength: 500 }, release_candidate: { type: boolean, default: false } } } } }
+      responses:
+        "200": { description: Cancelled item, content: { application/json: { schema: { $ref: "#/components/schemas/ContentItemDetail" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/events/:
+    get:
+      summary: Item history, newest first (E03-S04)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: type, in: query, schema: { type: string }, description: Comma-separated event types }
+      responses:
+        "200": { description: Events, content: { application/json: { schema: { $ref: "#/components/schemas/ContentEventPage" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/brief/:
+    get:
+      summary: Current brief, or `?version=n` (E04-S03)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: version, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: Brief document, content: { application/json: { schema: { $ref: "#/components/schemas/BriefDocument" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+    put:
+      summary: Save an edit as a new version (E04-S03); 409 version_conflict on a stale base_version
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { $ref: "#/components/schemas/BriefWrite" } } }
+      responses:
+        "200": { description: Brief document, content: { application/json: { schema: { $ref: "#/components/schemas/BriefDocument" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/brief/generate/:
+    post:
+      summary: Write a brief (E04-S03)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { feedback: { type: string, maxLength: 1000 }, base_version: { type: integer } } } } }
+      responses:
+        "202": { description: Job started, content: { application/json: { schema: { $ref: "#/components/schemas/JobAccepted" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/brief/versions/:
+    get:
+      summary: Brief history, newest first (E04-S03)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: Brief versions, content: { application/json: { schema: { $ref: "#/components/schemas/BriefPage" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/brief/approve/:
+    post:
+      summary: Approve the latest brief version (E04-S03)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [version], properties: { version: { type: integer } } } } }
+      responses:
+        "200": { description: Brief document plus item_status, content: { application/json: { schema: { $ref: "#/components/schemas/BriefDocument" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/plans/{id}/briefs/generate/:
+    post:
+      summary: Write briefs for every eligible item of a plan (E04-S03)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { content_items: { type: array, maxItems: 50, items: { type: integer } }, regenerate_drafts: { type: boolean } } } } }
+      responses:
+        "202": { description: Job started, content: { application/json: { schema: { $ref: "#/components/schemas/JobAccepted" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/script/:
+    get:
+      summary: Current script version; 404 with details.reason no_script when none (E05-S01)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: Script document, content: { application/json: { schema: { $ref: "#/components/schemas/ScriptDocument" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+    put:
+      summary: Save an edit as a new version (E05-S02); rule problems do not block saving
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [base_version, payload], properties: { base_version: { type: integer }, note: { type: string, maxLength: 500 }, payload: { $ref: "#/components/schemas/ScriptPackage" } } } } }
+      responses:
+        "200": { description: Script document with `unchanged`, content: { application/json: { schema: { $ref: "#/components/schemas/ScriptDocument" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/script/generate/:
+    post:
+      summary: Write or rewrite the script package (E05-S01, E05-S03)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { feedback: { type: string, maxLength: 2000 }, base_version: { type: integer } } } } }
+      responses:
+        "202": { description: Job started, content: { application/json: { schema: { $ref: "#/components/schemas/JobAccepted" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/script/versions/:
+    get:
+      summary: Script history without payloads (E05-S03)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: Version rows, content: { application/json: { schema: { type: object } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/script/versions/{version}/:
+    get:
+      summary: One script version, read-only unless latest (E05-S03)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: version, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Script document, content: { application/json: { schema: { $ref: "#/components/schemas/ScriptDocument" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/script/approve/:
+    post:
+      summary: Approve the latest script; production starts (E05-S02)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [version], properties: { version: { type: integer } } } } }
+      responses:
+        "200": { description: "`{script, content_item}`", content: { application/json: { schema: { type: object } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/assets/:
+    get:
+      summary: Asset library (E06-S01)
+      parameters:
+        - { name: account, in: query, required: true, schema: { type: integer } }
+        - { name: content_item, in: query, schema: { type: string }, description: "An ID, or `null` for library assets" }
+        - { name: kind, in: query, schema: { type: string } }
+        - { name: role, in: query, schema: { type: string } }
+        - { name: origin, in: query, schema: { type: string } }
+        - { name: rights_status, in: query, schema: { type: string }, description: Effective value, comma-separated }
+        - { name: in_use, in: query, schema: { type: boolean } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: ordering, in: query, schema: { type: string, enum: [-created_at, created_at, bytes, -bytes] } }
+      responses:
+        "200": { description: Assets, content: { application/json: { schema: { $ref: "#/components/schemas/AssetPage" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+    post:
+      summary: Upload one file (multipart); duplicates return 200 with duplicate true (E06-S01)
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, account]
+              properties:
+                file: { type: string, format: binary }
+                account: { type: integer }
+                content_item: { type: integer }
+                role: { type: string, enum: [source, background, clip, music, final] }
+                origin: { type: string, enum: [uploaded, licensed] }
+                rights_status: { type: string, enum: [cleared, unknown, restricted, expired] }
+                license_note: { type: string }
+                source_url: { type: string }
+                rights_expires_at: { type: string, format: date }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Asset" } } } }
+        "200": { description: Duplicate, content: { application/json: { schema: { $ref: "#/components/schemas/Asset" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/assets/{id}/:
+    get:
+      summary: One asset with used_by (E06-S01)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: Asset, content: { application/json: { schema: { $ref: "#/components/schemas/Asset" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+    patch:
+      summary: Edit role, rights metadata or item link (E06-S01)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { type: object } } }
+      responses:
+        "200": { description: Asset, content: { application/json: { schema: { $ref: "#/components/schemas/Asset" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+    delete:
+      summary: Delete an unused asset; 409 state_conflict with details.used_by when in use (E06-S01)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "204": { description: Deleted }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/render-templates/:
+    get:
+      summary: Render templates with field limits and previews (E06-S02)
+      parameters: [{ name: format, in: query, schema: { $ref: "#/components/schemas/PlanFormat" } }]
+      responses:
+        "200": { description: Templates, content: { application/json: { schema: { type: object } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/production/:
+    get:
+      summary: Current content version (or `?version=n`, read-only) (E06-S07)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: version, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: Production resource, content: { application/json: { schema: { $ref: "#/components/schemas/ProductionResource" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+    patch:
+      summary: Set music and reel cover frame on the draft (E06-S03)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [base_version], properties: { base_version: { type: integer }, music_asset_id: { type: integer, nullable: true }, cover_frame_index: { type: integer, nullable: true } } } } }
+      responses:
+        "200": { description: Production resource, content: { application/json: { schema: { $ref: "#/components/schemas/ProductionResource" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/production/start/:
+    post:
+      summary: Start, resume or restart production; 200 with unchanged true when nothing to do (E06-S07)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { restart_from_script: { type: boolean } } } } }
+      responses:
+        "202": { description: Job started, content: { application/json: { schema: { $ref: "#/components/schemas/JobAccepted" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/production/render/:
+    post:
+      summary: Re-render frames and reassemble (E06-S02, E06-S03, E06-S04)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [base_version], properties: { base_version: { type: integer }, frames: { type: array, nullable: true, items: { type: integer } }, reassemble: { type: boolean, default: true } } } } }
+      responses:
+        "202": { description: Job started, content: { application/json: { schema: { $ref: "#/components/schemas/JobAccepted" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/production/frames/{index}/:
+    put:
+      summary: Override a frame's text, template, background, duration or transition on the draft (E06-S07)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: index, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [base_version] } } }
+      responses:
+        "200": { description: Production resource, content: { application/json: { schema: { $ref: "#/components/schemas/ProductionResource" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/production/clips/:
+    put:
+      summary: Map uploaded clips to footage shots (E06-S04)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [base_version, clips], properties: { base_version: { type: integer }, clips: { type: array, items: { type: object, properties: { shot_index: { type: integer }, asset_id: { type: integer }, start_ms: { type: integer } } } } } } } }
+      responses:
+        "200": { description: Production resource, content: { application/json: { schema: { $ref: "#/components/schemas/ProductionResource" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/production/generate-image/:
+    post:
+      summary: Generate a background image for a frame; 429 rate_limited at the per-item cap (E06-S05)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [base_version, frame_index], properties: { base_version: { type: integer }, frame_index: { type: integer }, prompt: { type: string, maxLength: 600, nullable: true }, attach: { type: boolean, default: true }, rerender: { type: boolean, default: true } } } } }
+      responses:
+        "202": { description: Job started, content: { application/json: { schema: { $ref: "#/components/schemas/JobAccepted" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/production/final-asset/:
+    post:
+      summary: Use an uploaded file or an existing asset as the final asset (E06-S07)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+                asset_id: { type: integer }
+                base_version: { type: integer }
+                cover: { type: string, format: binary }
+                cover_asset_id: { type: integer }
+      responses:
+        "200": { description: Production resource, content: { application/json: { schema: { $ref: "#/components/schemas/ProductionResource" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/production/submit/:
+    post:
+      summary: Submit the version for checking (E06-S07); details.reason not_ready or warnings_not_acknowledged
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [base_version], properties: { base_version: { type: integer }, acknowledge_warnings: { type: boolean } } } } }
+      responses:
+        "200": { description: Submitted, content: { application/json: { schema: { type: object } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/copy/generate/:
+    post:
+      summary: Draft caption, hashtags and alt text (E06-S06)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [base_version], properties: { base_version: { type: integer }, feedback: { type: string, maxLength: 1000 }, keep_hashtags: { type: boolean } } } } }
+      responses:
+        "202": { description: Job started, content: { application/json: { schema: { $ref: "#/components/schemas/JobAccepted" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  /api/v1/content-items/{id}/copy/:
+    put:
+      summary: Edit caption, hashtags and alt text on the draft (E06-S06)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [base_version], properties: { base_version: { type: integer }, caption: { type: string }, hashtags: { type: array, items: { type: string } }, alt_text: { type: string } } } } }
+      responses:
+        "200": { description: Production resource, content: { application/json: { schema: { $ref: "#/components/schemas/ProductionResource" } } } }
+        default: { $ref: "#/components/responses/ApiError" }
+  # --- end E03-S04 / E04 / E05 / E06 paths ---
 components:
+  # --- E02 --- shared research parameters -------------------------------------------------------
   parameters:
-    AccountRequired: { name: account, in: query, required: true, schema: { type: integer } }
-    Id: { name: id, in: path, required: true, schema: { type: integer } }
-    Page: { name: page, in: query, schema: { type: integer, minimum: 1 } }
-    PageSize: { name: page_size, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+    E02Account: { name: account, in: query, required: true, schema: { type: integer } }
+    E02Page: { name: page, in: query, schema: { type: integer, minimum: 1 } }
+    E02PageSize: { name: page_size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+  # --- end E02 parameters ---
   schemas:
     ApiError:
       type: object
@@ -406,7 +1437,7 @@ components:
           properties:
             code:
               type: string
-              enum: [validation_error, authentication_required, permission_denied, not_found, method_not_allowed, rate_limited, state_conflict, payload_too_large, service_unavailable, service_timeout, upstream_error, server_error, request_error, csrf_failed, invalid_transition, job_in_progress, provider_not_configured, provider_error]
+              enum: [validation_error, authentication_required, permission_denied, not_found, method_not_allowed, rate_limited, state_conflict, payload_too_large, service_unavailable, service_timeout, upstream_error, server_error, request_error, csrf_failed, invalid_credentials, job_in_progress, unsupported_media, version_conflict, invalid_transition, provider_not_configured, provider_error, instagram_not_connected, instagram_permission_missing]
             message: { type: string, description: Persian operator-safe message. }
             fields:
               type: array
@@ -417,50 +1448,404 @@ components:
                   path: { type: string }
                   code: { type: string }
                   message: { type: string }
+                  reason: { type: string, description: "Only for `unsupported_media`: `type_not_allowed`, `extension_mismatch`, `empty_file` or a story-defined format reason (same as `code`)." }
+            details:
+              type: object
+              description: >-
+                Optional machine-readable context. `job_in_progress`: `{job}` (a `Job`);
+                `unsupported_media`: `{reasons}`; `version_conflict`: `{latest_version, ...}`;
+                `payload_too_large`: optionally `{max_bytes}`.
+              properties:
+                job: { $ref: "#/components/schemas/Job" }
+                reasons: { type: array, items: { type: string } }
             request_id: { type: string, format: uuid }
             retryable: { type: boolean }
-            details: { type: object, additionalProperties: true, description: Machine-readable context, for example job for job_in_progress or allowed_statuses for invalid_transition. }
-    Page:
+    Readiness:
       type: object
-      required: [count, next, previous, results]
+      required: [status, dependencies]
       properties:
-        count: { type: integer }
-        next: { type: [string, "null"] }
-        previous: { type: [string, "null"] }
-        results: { type: array }
-    UserRef:
-      type: [object, "null"]
+        status: { type: string, enum: [ready, not_ready] }
+        dependencies:
+          type: object
+          additionalProperties: { type: string, enum: [ok, unavailable] }
+    # --- E00 --- schemas -----------------------------------------------------------------------
+    User:
+      type: object
+      description: The full user object; returned only by `/auth/*`. Elsewhere users are `UserRef`.
+      required: [id, username, full_name, email, role]
       properties:
         id: { type: integer }
-        name: { type: string }
-    Job:
+        username: { type: string }
+        full_name: { type: string, description: "first_name and last_name joined; falls back to username" }
+        email: { type: string, description: May be empty }
+        role: { type: string, enum: [admin, operator], description: "admin when is_superuser, otherwise operator" }
+    UserRef:
       type: object
-      required: [id, kind, status, progress, message, target_type, target_id]
+      required: [id, name]
+      properties:
+        id: { type: integer }
+        name: { type: string, description: Full name, falling back to the username }
+    JobStatus:
+      type: string
+      enum: [queued, running, succeeded, failed, cancelled]
+    JobSummary:
+      type: object
+      description: Embedded by other resources as `active_job` (or null).
+      required: [id, kind, status, progress, message]
       properties:
         id: { type: string, format: uuid }
         kind: { type: string }
-        status: { type: string, enum: [queued, running, succeeded, failed, cancelled] }
+        status: { $ref: "#/components/schemas/JobStatus" }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        message: { type: string, maxLength: 120 }
+    Job:
+      type: object
+      required: [id, kind, status, progress, message, account, queue, target_type, target_id, result, error_code, error_detail, created_by, request_id, created_at, started_at, finished_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, examples: [production.render] }
+        status: { $ref: "#/components/schemas/JobStatus" }
         progress: { type: integer, minimum: 0, maximum: 100 }
         message: { type: string }
-        account: { type: [integer, "null"] }
-        queue: { type: string, enum: [default, render] }
+        account: { type: [integer, "null"], description: Null for system jobs }
+        queue: { type: string, enum: [default, render, publish] }
         target_type: { type: string }
         target_id: { type: string }
         result: { type: [object, "null"] }
-        error_code: { type: [string, "null"] }
-        error_detail: { type: [string, "null"] }
-        created_by: { $ref: "#/components/schemas/UserRef" }
+        error_code: { type: [string, "null"], description: "Shared: enqueue_failed, stale_job, timeout, server_error, media_checksum_mismatch; plus story-defined codes" }
+        error_detail: { type: [string, "null"], maxLength: 500 }
+        created_by:
+          oneOf:
+            - { $ref: "#/components/schemas/UserRef" }
+            - { type: "null" }
         request_id: { type: [string, "null"] }
         created_at: { type: string, format: date-time }
         started_at: { type: [string, "null"], format: date-time }
         finished_at: { type: [string, "null"], format: date-time }
     JobAccepted:
       type: object
+      description: The `202` body of every endpoint that starts a job.
       required: [job]
       properties:
         job: { $ref: "#/components/schemas/Job" }
+    JobPage:
+      type: object
+      required: [count, next, previous, results]
+      properties:
+        count: { type: integer }
+        next: { type: [string, "null"] }
+        previous: { type: [string, "null"] }
+        results: { type: array, items: { $ref: "#/components/schemas/Job" } }
+    # E00-S03 accounts, brand profile and fonts
+    Autopilot:
+      type: object
+      additionalProperties: false
+      required: [selection, brief, script]
+      properties:
+        selection: { type: boolean }
+        brief: { type: boolean }
+        script: { type: boolean }
+    PostingRules:
+      type: object
+      additionalProperties: false
+      required: [min_gap_minutes, max_feed_per_day, max_stories_per_day, max_revisions]
+      properties:
+        min_gap_minutes: { type: integer, minimum: 15, maximum: 1440 }
+        max_feed_per_day: { type: integer, minimum: 1, maximum: 10, description: Reels and feed posts together }
+        max_stories_per_day: { type: integer, minimum: 1, maximum: 20 }
+        max_revisions: { type: integer, minimum: 0, maximum: 5 }
+    InstagramAccount:
+      type: object
+      required: [id, handle, display_name, timezone, content_language, week_start_day, status, publishing_enabled, autopilot, posting_rules, notes, connection_status, connection_provider, brand_complete, created_at, updated_at]
+      properties:
+        id: { type: integer }
+        handle: { type: string, pattern: "^[a-z0-9._]{1,30}$" }
+        display_name: { type: string, minLength: 1, maxLength: 80 }
+        timezone: { type: string, description: IANA name }
+        content_language: { type: string, enum: [fa, en] }
+        week_start_day: { type: integer, minimum: 0, maximum: 6, description: 0 = Monday }
+        status: { type: string, enum: [active, archived] }
+        publishing_enabled: { type: boolean }
+        autopilot: { $ref: "#/components/schemas/Autopilot" }
+        posting_rules: { $ref: "#/components/schemas/PostingRules" }
+        notes: { type: string, maxLength: 1000 }
+        connection_status: { type: string, enum: [disconnected, connected, expiring, needs_attention] }
+        connection_provider: { type: string, enum: [graph_api, manual, fake] }
+        brand_complete: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    InstagramAccountPage:
+      type: object
+      required: [count, next, previous, results]
+      properties:
+        count: { type: integer }
+        next: { type: [string, "null"] }
+        previous: { type: [string, "null"] }
+        results: { type: array, items: { $ref: "#/components/schemas/InstagramAccount" } }
+    InstagramAccountCreate:
+      type: object
+      required: [handle, display_name]
+      properties:
+        handle: { type: string, description: "A leading `@`, surrounding spaces and upper case are normalised away", examples: ["@GreenHome.ir"] }
+        display_name: { type: string, minLength: 1, maxLength: 80 }
+        timezone: { type: string, description: "IANA name; default `SOCIALHUB_DEFAULT_ACCOUNT_TIME_ZONE`" }
+        content_language: { type: string, enum: [fa, en], default: fa }
+        week_start_day: { type: integer, minimum: 0, maximum: 6, default: 5 }
+        notes: { type: string, maxLength: 1000 }
+    InstagramAccountUpdate:
+      type: object
+      description: Any subset. `handle`, `status`, `publishing_enabled` and `autopilot` are admin only.
+      properties:
+        display_name: { type: string, minLength: 1, maxLength: 80 }
+        timezone: { type: string }
+        content_language: { type: string, enum: [fa, en] }
+        week_start_day: { type: integer, minimum: 0, maximum: 6 }
+        notes: { type: string, maxLength: 1000 }
+        posting_rules: { type: object, description: "Subset of `PostingRules` keys, merged" }
+        handle: { type: string }
+        status: { type: string, enum: [active, archived] }
+        publishing_enabled: { type: boolean }
+        autopilot: { type: object, description: "Subset of `Autopilot` keys, merged" }
+    BrandColors:
+      type: object
+      additionalProperties: false
+      required: [primary, secondary, accent, background, text]
+      properties:
+        primary: { type: string, pattern: "^#[0-9A-Fa-f]{6}$" }
+        secondary: { type: string, pattern: "^#[0-9A-Fa-f]{6}$" }
+        accent: { type: string, pattern: "^#[0-9A-Fa-f]{6}$" }
+        background: { type: string, pattern: "^#[0-9A-Fa-f]{6}$" }
+        text: { type: string, pattern: "^#[0-9A-Fa-f]{6}$" }
+    BrandFonts:
+      type: object
+      additionalProperties: false
+      required: [heading, body]
+      properties:
+        heading: { type: string, description: A key from `GET /fonts/` }
+        body: { type: string, description: A key from `GET /fonts/` }
+    BrandProfileWrite:
+      type: object
+      required: [colors, fonts, tone_of_voice, audience_summary, content_pillars, default_hashtags, banned_terms, cta_examples, handle_display, ai_disclosure]
+      properties:
+        colors: { $ref: "#/components/schemas/BrandColors" }
+        fonts: { $ref: "#/components/schemas/BrandFonts" }
+        tone_of_voice: { type: string, maxLength: 2000 }
+        audience_summary: { type: string, maxLength: 2000 }
+        content_pillars: { type: array, maxItems: 10, items: { type: string, minLength: 1, maxLength: 80 } }
+        default_hashtags: { type: array, maxItems: 30, description: "A leading `#` is stripped; duplicates removed case-insensitively", items: { type: string, pattern: "^#?[^\\s#]{1,100}$" } }
+        banned_terms: { type: array, maxItems: 100, items: { type: string, minLength: 1, maxLength: 80 } }
+        cta_examples: { type: array, maxItems: 10, items: { type: string, minLength: 1, maxLength: 200 } }
+        handle_display: { type: string, minLength: 1, maxLength: 40 }
+        ai_disclosure: { type: string, enum: [generated_only, always, never] }
+        logo_light: { type: "null", description: Send `null` to remove the logo; other values are ignored }
+        logo_dark: { type: "null", description: Send `null` to remove the logo; other values are ignored }
+    BrandWarning:
+      type: object
+      required: [path, code, message]
+      properties:
+        path: { type: string, examples: [colors.text] }
+        code: { type: string, enum: [low_contrast] }
+        message: { type: string }
+    BrandProfile:
+      type: object
+      required: [account, logo_light, logo_dark, colors, fonts, tone_of_voice, audience_summary, content_pillars, default_hashtags, banned_terms, cta_examples, handle_display, ai_disclosure, complete, warnings, updated_at]
+      properties:
+        account: { type: integer }
+        logo_light: { type: [string, "null"], format: uri, description: Logo for light backgrounds }
+        logo_dark: { type: [string, "null"], format: uri, description: Logo for dark backgrounds }
+        colors: { $ref: "#/components/schemas/BrandColors" }
+        fonts: { $ref: "#/components/schemas/BrandFonts" }
+        tone_of_voice: { type: string }
+        audience_summary: { type: string }
+        content_pillars: { type: array, items: { type: string } }
+        default_hashtags: { type: array, items: { type: string }, description: Without `#` }
+        banned_terms: { type: array, items: { type: string } }
+        cta_examples: { type: array, items: { type: string } }
+        handle_display: { type: string }
+        ai_disclosure: { type: string, enum: [generated_only, always, never] }
+        complete: { type: boolean, description: "A light logo, a tone of voice and both fonts are set" }
+        warnings: { type: array, items: { $ref: "#/components/schemas/BrandWarning" } }
+        updated_at: { type: string, format: date-time }
+    Font:
+      type: object
+      required: [key, name, scripts, weights, files]
+      properties:
+        key: { type: string, enum: [vazirmatn, noto-sans-arabic, noto-naskh-arabic, inter, noto-sans] }
+        name: { type: string }
+        scripts: { type: array, items: { type: string, enum: [arabic, latin] } }
+        weights: { type: array, items: { type: integer, enum: [400, 700] } }
+        files:
+          type: object
+          required: ["400", "700"]
+          properties:
+            "400": { type: string, format: uri }
+            "700": { type: string, format: uri }
+    # E00-S05 schemas
+    AiProviderStatus:
+      type: object
+      required: [provider, configured, missing, model]
+      properties:
+        provider: { type: string, enum: [anthropic, openai, fake] }
+        configured: { type: boolean }
+        missing: { type: array, items: { type: string }, description: Setting names that are not set }
+        model: { type: string, description: "Configured model ID; `fake` for the fake provider; empty when unset" }
+        overrides: { type: object, additionalProperties: { type: string }, description: Text only. Task key to model ID }
+    SystemStatus:
+      type: object
+      required: [app, dependencies, workers, ai, instagram, storage]
+      properties:
+        app:
+          type: object
+          required: [version, environment, debug]
+          properties:
+            version: { type: string }
+            environment: { type: string }
+            debug: { type: boolean }
+        dependencies:
+          type: object
+          required: [database, redis]
+          properties:
+            database: { type: string, enum: [ok, unavailable] }
+            redis: { type: string, enum: [ok, unavailable] }
+        workers:
+          type: object
+          description: Per queue.
+          required: [default, render, publish]
+          additionalProperties: { type: string, enum: [ok, unavailable, unknown] }
+        ai:
+          type: object
+          required: [text, image, models_without_price, max_calls_per_job, timeout_seconds]
+          properties:
+            text: { $ref: "#/components/schemas/AiProviderStatus" }
+            image: { $ref: "#/components/schemas/AiProviderStatus" }
+            models_without_price: { type: array, items: { type: string } }
+            max_calls_per_job: { type: integer }
+            timeout_seconds: { type: integer }
+        instagram: { type: [object, "null"], description: Filled by E00-S04; null until then }
+        storage:
+          type: object
+          required: [backend, bucket, public_base_url]
+          properties:
+            backend: { type: string, enum: [local, s3] }
+            bucket: { type: [string, "null"] }
+            public_base_url: { type: [string, "null"] }
+    AiTestResult:
+      type: object
+      description: "`result` of a finished `system.ai_test` job: one key per tested provider."
+      properties:
+        text: { $ref: "#/components/schemas/AiTestOutcome" }
+        image: { $ref: "#/components/schemas/AiTestOutcome" }
+    AiTestOutcome:
+      type: object
+      required: [ok, provider, model, latency_ms, ai_run_id, error_code, error_detail]
+      properties:
+        ok: { type: boolean }
+        provider: { type: string, enum: [anthropic, openai, fake] }
+        model: { type: string }
+        latency_ms: { type: integer }
+        ai_run_id: { type: [integer, "null"] }
+        error_code: { type: [string, "null"], examples: [provider_not_configured, provider_error] }
+        error_detail: { type: [string, "null"] }
+    AiRun:
+      type: object
+      required: [id, created_at, job, account, provider, model, task, prompt_version, input_tokens, output_tokens, units, cost_usd, latency_ms, status, error_code, provider_request_id]
+      properties:
+        id: { type: integer }
+        created_at: { type: string, format: date-time }
+        job: { type: [string, "null"], format: uuid }
+        account: { type: [integer, "null"], description: Null for system calls }
+        provider: { type: string, enum: [anthropic, openai, fake] }
+        model: { type: string, description: The model that answered, after any server-side fallback }
+        task: { type: string, examples: [brief.generate] }
+        prompt_version: { type: string }
+        input_tokens: { type: integer }
+        output_tokens: { type: integer }
+        units:
+          type: object
+          description: "Keys used: cache_read_tokens, cache_write_tokens, web_searches, images, attempts, fallback_used, price_missing"
+        cost_usd: { type: string, description: Decimal with 6 places, examples: ["0.041900"] }
+        latency_ms: { type: integer, description: Total across attempts }
+        status: { type: string, enum: [ok, error, refused] }
+        error_code: { type: [string, "null"] }
+        provider_request_id: { type: [string, "null"] }
+    AiRunDetail:
+      allOf:
+        - { $ref: "#/components/schemas/AiRun" }
+        - type: object
+          required: [payload]
+          properties:
+            payload:
+              type: [object, "null"]
+              description: "`{request: {system, user, options}, response, truncated, error?}`, at most 64 KB; null after 30 days"
+    AiRunPage:
+      type: object
+      required: [count, next, previous, totals, results]
+      properties:
+        count: { type: integer }
+        next: { type: [string, "null"] }
+        previous: { type: [string, "null"] }
+        totals:
+          type: object
+          required: [calls, input_tokens, output_tokens, cost_usd]
+          properties:
+            calls: { type: integer }
+            input_tokens: { type: integer }
+            output_tokens: { type: integer }
+            cost_usd: { type: string }
+        results: { type: array, items: { $ref: "#/components/schemas/AiRun" } }
+    # E00-S04 schemas
+    ConnectionProvider:
+      type: string
+      enum: [graph_api, manual, fake]
+      description: "`graph_api` is reserved until its adapter exists (never `provider_configured`)."
+    ConnectionCapabilities:
+      type: object
+      required: [publish_feed, publish_reel, publish_story, insights]
+      properties:
+        publish_feed: { type: boolean }
+        publish_reel: { type: boolean }
+        publish_story: { type: boolean }
+        insights: { type: boolean }
+    AccountConnection:
+      type: object
+      required: [account, provider, provider_configured, allowed_providers, status, ig_user_id, username, account_type, has_token, token_expires_at, token_refreshed_at, scopes, capabilities, last_verified_at, last_error_code, last_error_at, active_job, updated_at]
+      properties:
+        account: { type: integer }
+        provider: { $ref: "#/components/schemas/ConnectionProvider" }
+        provider_configured: { type: boolean, description: "Always true for `manual` and `fake`" }
+        allowed_providers: { type: array, items: { $ref: "#/components/schemas/ConnectionProvider" } }
+        status: { type: string, enum: [disconnected, connected, expiring, needs_attention] }
+        ig_user_id: { type: [string, "null"] }
+        username: { type: [string, "null"] }
+        account_type: { type: [string, "null"], enum: [BUSINESS, MEDIA_CREATOR, null] }
+        has_token: { type: boolean }
+        token_expires_at: { type: [string, "null"], format: date-time }
+        token_refreshed_at: { type: [string, "null"], format: date-time }
+        scopes:
+          type: array
+          items: { type: string, enum: [instagram_business_basic, instagram_business_content_publish, instagram_business_manage_insights] }
+        capabilities: { $ref: "#/components/schemas/ConnectionCapabilities" }
+        last_verified_at: { type: [string, "null"], format: date-time }
+        last_error_code: { type: [string, "null"], enum: [token_invalid, permission_missing, account_mismatch, not_professional, rate_limited, provider_error, null] }
+        last_error_at: { type: [string, "null"], format: date-time }
+        active_job:
+          oneOf:
+            - { $ref: "#/components/schemas/JobSummary" }
+            - { type: "null" }
+        updated_at: { type: string, format: date-time }
+    # --- end E00 schemas ---
+    # --- E02 --- trend research schemas ---------------------------------------------------------
+    ResearchSourceWrite:
+      type: object
+      properties:
+        account: { type: integer }
+        kind: { type: string, enum: [web_search, rss], description: Cannot change after creation }
+        value: { type: string, description: "Search query (3-200 characters) or http(s) feed URL (at most 500, not localhost or an IP)" }
+        label: { type: string, maxLength: 80, description: Empty means the query or the feed host }
+        active: { type: boolean, default: true }
     ResearchSource:
       type: object
+      required: [id, account, kind, value, label, active, last_run_at, last_status, available, unavailable_reason, created_at, updated_at]
       properties:
         id: { type: integer }
         account: { type: integer }
@@ -474,74 +1859,71 @@ components:
         unavailable_reason: { type: [string, "null"], enum: [provider_not_configured, null] }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
-    ResearchSourceInput:
-      type: object
-      required: [account, kind, value]
-      properties:
-        account: { type: integer }
-        kind: { type: string, enum: [web_search, rss] }
-        value: { type: string }
-        label: { type: string, maxLength: 80 }
-        active: { type: boolean, default: true }
-    ResearchRunInput:
+    ResearchSourcePage:
+      allOf:
+        - { $ref: "#/components/schemas/E02Page" }
+        - { type: object, properties: { results: { type: array, items: { $ref: "#/components/schemas/ResearchSource" } } } }
+    ResearchRunStart:
       type: object
       required: [account]
       properties:
         account: { type: integer }
         plan: { type: [integer, "null"] }
-        source_ids: { type: array, items: { type: integer } }
+        source_ids: { type: [array, "null"], items: { type: integer } }
         lookback_days: { type: integer, minimum: 1, maximum: 30, default: 7 }
         collect: { type: boolean, default: true }
         synthesize: { type: boolean, default: true }
     ResearchRun:
       type: object
+      required: [id, account, plan, status, params, stats, started_at, finished_at, job, started_by]
       properties:
         id: { type: integer }
         account: { type: integer }
         plan: { type: [integer, "null"] }
         status: { type: string, enum: [running, completed, failed] }
-        params: { type: object }
-        stats:
-          type: object
-          description: signals, duplicates, topics, dropped_topics, synthesis (done, skipped_too_few_signals, skipped) and by_source.
+        params: { type: object, description: "{lookback_days, source_ids, collect, synthesize}" }
+        stats: { type: object, description: "{signals, duplicates, topics, dropped_topics, synthesis, by_source: {<source id>: {signals, duplicates, status}}}" }
         started_at: { type: string, format: date-time }
         finished_at: { type: [string, "null"], format: date-time }
         job:
-          type: object
+          type: [object, "null"]
           properties:
             id: { type: string, format: uuid }
             status: { type: string }
             progress: { type: integer }
             message: { type: string }
-            error_code: { type: [string, "null"] }
-        started_by: { $ref: "#/components/schemas/UserRef" }
+            error_code: { type: [string, "null"], description: "all_sources_failed, timeout, stale_run, provider_error, server_error" }
+        started_by: { $ref: "#/components/schemas/E02UserRef" }
     ResearchRunDetail:
       allOf:
-        - $ref: "#/components/schemas/ResearchRun"
-        - properties:
+        - { $ref: "#/components/schemas/ResearchRun" }
+        - type: object
+          properties:
             sources:
               type: array
               items:
                 type: object
                 properties:
                   source_id: { type: integer }
-                  kind: { type: [string, "null"] }
+                  kind: { type: [string, "null"], description: Null when the source was deleted }
                   label: { type: [string, "null"] }
                   signals: { type: integer }
                   duplicates: { type: integer }
                   status: { type: string }
+    ResearchRunPage:
+      allOf:
+        - { $ref: "#/components/schemas/E02Page" }
+        - { type: object, properties: { results: { type: array, items: { $ref: "#/components/schemas/ResearchRun" } } } }
     TrendSignal:
       type: object
+      required: [id, account, run, source, kind, url, title, excerpt, author, published_at, captured_at, metrics, topic_ids]
       properties:
         id: { type: integer }
         account: { type: integer }
         run: { type: [integer, "null"] }
         source:
           type: [object, "null"]
-          properties:
-            id: { type: integer }
-            kind: { type: string }
-            label: { type: string }
+          properties: { id: { type: integer }, kind: { type: string }, label: { type: string } }
         kind: { type: string, enum: [web_search, rss, manual] }
         url: { type: string }
         title: { type: string }
@@ -549,34 +1931,28 @@ components:
         author: { type: string }
         published_at: { type: [string, "null"], format: date-time }
         captured_at: { type: string, format: date-time }
-        metrics:
-          type: object
-          properties:
-            likes: { type: integer, minimum: 0 }
-            comments: { type: integer, minimum: 0 }
-            views: { type: integer, minimum: 0 }
+        metrics: { type: object, properties: { likes: { type: integer }, comments: { type: integer }, views: { type: integer } } }
         topic_ids: { type: array, items: { type: integer } }
-    ManualSignalInput:
+    TrendSignalPage:
+      allOf:
+        - { $ref: "#/components/schemas/E02Page" }
+        - { type: object, properties: { results: { type: array, items: { $ref: "#/components/schemas/TrendSignal" } } } }
+    ManualSignalWrite:
       type: object
       required: [account, title]
       properties:
         account: { type: integer }
-        url: { type: string, maxLength: 2000 }
+        url: { type: string, description: "http or https; required when excerpt is empty" }
         title: { type: string, maxLength: 300 }
         excerpt: { type: string, maxLength: 1000 }
         author: { type: string, maxLength: 120 }
         published_at: { type: [string, "null"], format: date-time }
-        metrics:
-          type: object
-          additionalProperties: false
-          properties:
-            likes: { type: integer, minimum: 0 }
-            comments: { type: integer, minimum: 0 }
-            views: { type: integer, minimum: 0 }
+        metrics: { type: object, additionalProperties: false, properties: { likes: { type: integer, minimum: 0 }, comments: { type: integer, minimum: 0 }, views: { type: integer, minimum: 0 } } }
         topic: { type: [integer, "null"] }
-    TopicInput:
+    TrendTopicWrite:
       type: object
       properties:
+        account: { type: integer, description: Create only }
         plan: { type: [integer, "null"] }
         title: { type: string, minLength: 3, maxLength: 120 }
         summary: { type: string, maxLength: 600 }
@@ -587,6 +1963,7 @@ components:
         signal_ids: { type: array, maxItems: 20, items: { type: integer } }
     TrendTopic:
       type: object
+      required: [id, account, plan, run, title, summary, why_now, hooks, suggested_formats, keywords, evidence_score, evidence_breakdown, signal_count, status, origin, created_at, updated_at]
       properties:
         id: { type: integer }
         account: { type: integer }
@@ -606,36 +1983,381 @@ components:
             source_diversity: { type: integer }
             recency: { type: integer }
             engagement: { type: integer }
-        signal_count: { type: integer, description: Number of linked signals. }
+        signal_count: { type: integer, description: Number of linked signals }
         status: { type: string, enum: [new, shortlisted, dismissed, used] }
         origin: { type: string, enum: [ai, manual] }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     TrendTopicDetail:
       allOf:
-        - $ref: "#/components/schemas/TrendTopic"
-        - properties:
-            signals: { type: array, items: { $ref: "#/components/schemas/TrendSignal" } }
-    Readiness:
+        - { $ref: "#/components/schemas/TrendTopic" }
+        - { type: object, properties: { signals: { type: array, items: { $ref: "#/components/schemas/TrendSignal" } } } }
+    TrendTopicPage:
+      allOf:
+        - { $ref: "#/components/schemas/E02Page" }
+        - { type: object, properties: { results: { type: array, items: { $ref: "#/components/schemas/TrendTopic" } } } }
+    E02Page:
       type: object
-      required: [status, dependencies]
+      required: [count, next, previous, results]
       properties:
-        status: { type: string, enum: [ready, not_ready] }
-        dependencies:
-          type: object
-          additionalProperties: { type: string, enum: [ok, unavailable] }
-    SyntheticSourceItem:
+        count: { type: integer }
+        next: { type: [string, "null"] }
+        previous: { type: [string, "null"] }
+        results: { type: array }
+    E02UserRef:
+      type: [object, "null"]
+      properties: { id: { type: integer }, name: { type: string } }
+    # --- end E02 schemas ---
+    # --- E01 --- weekly plan schemas ---------------------------------------------------------
+    PlanFormat: { type: string, enum: [reel, story, feed_post] }
+    PlanRole: { type: string, enum: [attract, educate, build_trust, convert, engage] }
+    PlanMetric: { type: string, enum: [reach, views, likes, comments, saves, shares, replies, follower_growth] }
+    PlanGoal:
       type: object
-      required: [source_key, source_type, title, canonical_url, published_at, status, eligibility, is_synthetic]
+      required: [metric, scope, format, target_value]
       properties:
-        source_key: { type: string }
-        source_type: { type: string, const: company_feed }
+        id: { type: integer, description: Omit to create; an existing goal left out of the list is deleted }
+        metric: { $ref: "#/components/schemas/PlanMetric" }
+        scope: { type: string, enum: [week_total, per_post] }
+        format: { oneOf: [{ $ref: "#/components/schemas/PlanFormat" }, { type: "null" }] }
+        target_value: { type: integer, minimum: 1, maximum: 100000000 }
+    PlanReadiness:
+      type: object
+      required: [can_activate, problems]
+      properties:
+        can_activate: { type: boolean }
+        problems:
+          type: array
+          items:
+            type: object
+            required: [code]
+            properties:
+              code: { type: string, enum: [objective_missing, audience_missing, no_slots, goal_missing, week_ended] }
+              details: { type: object, properties: { metrics: { type: array, items: { $ref: "#/components/schemas/PlanMetric" } } } }
+    PlanSlotSummary:
+      type: object
+      description: total and by_format leave out skipped slots; filled counts reserved, scheduled and published.
+      properties:
+        total: { type: integer }
+        filled: { type: integer }
+        by_format: { type: object, additionalProperties: { type: integer } }
+        by_status: { type: object, additionalProperties: { type: integer } }
+    PlanRow:
+      type: object
+      properties:
+        id: { type: integer }
+        account: { type: integer }
+        week_start: { type: string, format: date }
+        week_end: { type: string, format: date }
+        status: { type: string, enum: [draft, active, closed] }
         title: { type: string }
-        canonical_url: { type: string, format: uri }
-        published_at: { type: string, format: date-time }
-        status: { type: string, const: demo_only }
-        eligibility: { type: string, const: not_for_publication }
-        is_synthetic: { type: boolean, const: true }
+        success_metrics: { type: array, items: { $ref: "#/components/schemas/PlanMetric" } }
+        slot_summary: { $ref: "#/components/schemas/PlanSlotSummary" }
+        readiness: { $ref: "#/components/schemas/PlanReadiness" }
+        activated_at: { type: [string, "null"], format: date-time }
+        closed_at: { type: [string, "null"], format: date-time }
+        updated_at: { type: string, format: date-time }
+    PlanRowPage:
+      type: object
+      properties:
+        count: { type: integer }
+        next: { type: [string, "null"] }
+        previous: { type: [string, "null"] }
+        results: { type: array, items: { $ref: "#/components/schemas/PlanRow" } }
+    CarriedFinding:
+      type: object
+      properties:
+        id: { type: string }
+        report_id: { type: integer }
+        type: { type: string, enum: [worked, did_not_work, insight] }
+        title: { type: string }
+        detail: { type: string }
+        recommendation: { type: string }
+        plan_field: { type: string, enum: [objective, audience, goals, slots, notes, none] }
+        suggested_change: { type: [object, "null"] }
+        state: { type: string, enum: [pending, applied, ignored] }
+    WeeklyPlan:
+      allOf:
+        - { $ref: "#/components/schemas/PlanRow" }
+        - type: object
+          properties:
+            objective: { type: string, maxLength: 1000 }
+            audience_summary: { type: string, maxLength: 2000 }
+            audience_segments:
+              type: array
+              maxItems: 5
+              items: { type: object, properties: { name: { type: string, maxLength: 60 }, description: { type: string, maxLength: 300 } } }
+            goals: { type: array, items: { $ref: "#/components/schemas/PlanGoal" } }
+            notes: { type: string, maxLength: 5000 }
+            carried_findings: { type: array, items: { $ref: "#/components/schemas/CarriedFinding" } }
+            source_report: { type: [integer, "null"] }
+            created_by: { type: [object, "null"], properties: { id: { type: integer }, name: { type: string } } }
+            created_at: { type: string, format: date-time }
+    PlanUpdate:
+      type: object
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120 }
+        objective: { type: string, maxLength: 1000 }
+        audience_summary: { type: string, maxLength: 2000 }
+        audience_segments: { type: array, maxItems: 5, items: { type: object, required: [name], properties: { name: { type: string }, description: { type: string } } } }
+        success_metrics: { type: array, minItems: 1, maxItems: 4, items: { $ref: "#/components/schemas/PlanMetric" } }
+        goals: { type: array, maxItems: 20, items: { $ref: "#/components/schemas/PlanGoal" } }
+        notes: { type: string, maxLength: 5000 }
+        carried_findings_state:
+          type: array
+          items: { type: object, required: [id, state], properties: { id: { type: string }, state: { type: string, enum: [pending, applied, ignored] } } }
+    PlanSlot:
+      type: object
+      properties:
+        id: { type: integer }
+        plan: { type: integer }
+        scheduled_at: { type: string, format: date-time }
+        local_date: { type: string, format: date, description: In the account timezone }
+        local_time: { type: string, example: "19:00" }
+        weekday: { type: integer, minimum: 0, maximum: 6, description: 0 = Monday }
+        format: { $ref: "#/components/schemas/PlanFormat" }
+        role: { oneOf: [{ $ref: "#/components/schemas/PlanRole" }, { type: "null" }] }
+        status: { type: string, enum: [open, reserved, scheduled, published, skipped] }
+        note: { type: string }
+        content_item: { type: [object, "null"], properties: { id: { type: integer }, title: { type: string }, status: { type: string } } }
+    PlanSlotPage:
+      type: object
+      properties:
+        count: { type: integer }
+        next: { type: [string, "null"] }
+        previous: { type: [string, "null"] }
+        results: { type: array, items: { $ref: "#/components/schemas/PlanSlot" } }
+    PlanSlotWrite:
+      type: object
+      description: Send scheduled_at, or local_date with local_time (account timezone). status only open or skipped.
+      properties:
+        scheduled_at: { type: string, format: date-time }
+        local_date: { type: string, format: date }
+        local_time: { type: string, example: "12:30" }
+        format: { $ref: "#/components/schemas/PlanFormat" }
+        role: { oneOf: [{ $ref: "#/components/schemas/PlanRole" }, { type: "null" }] }
+        note: { type: string, maxLength: 500 }
+        status: { type: string, enum: [open, skipped] }
+    SlotTemplateRow:
+      type: object
+      required: [weekday, local_time, format]
+      properties:
+        id: { type: integer, readOnly: true }
+        weekday: { type: integer, minimum: 0, maximum: 6 }
+        local_time: { type: string, description: "HH:MM in 5-minute steps" }
+        format: { $ref: "#/components/schemas/PlanFormat" }
+        default_role: { oneOf: [{ $ref: "#/components/schemas/PlanRole" }, { type: "null" }] }
+        active: { type: boolean, default: true }
+    SlotTemplate:
+      type: object
+      properties:
+        account: { type: integer }
+        timezone: { type: string }
+        rows: { type: array, items: { $ref: "#/components/schemas/SlotTemplateRow" } }
+    # --- end E01 schemas ---
+    # --- E03-S04 / E04 / E05 / E06 --- schemas --------------------------------------------------
+    FormatsResponse:
+      type: object
+      properties:
+        registry_version: { type: string, example: "1+h5" }
+        formats: { type: array, items: { type: object } }
+        specs: { type: array, items: { type: object }, description: One FormatSpec per (format, media kind); field names in E04-S01 rule 3 }
+        production_modes: { type: array, items: { type: object } }
+        roles: { type: array, items: { type: object } }
+        script_rules: { type: array, items: { type: object } }
+        frame_templates: { type: array, items: { type: object } }
+    ContentItemSummary:
+      type: object
+      properties:
+        id: { type: integer }
+        account: { type: integer }
+        title: { type: string }
+        format: { $ref: "#/components/schemas/PlanFormat" }
+        media_kind: { type: string, enum: [image, video] }
+        production_mode: { type: string, enum: [design, motion, video] }
+        role: { type: string, nullable: true }
+        status: { type: string, enum: [selected, briefed, scripted, in_production, in_check, needs_revision, in_review, approved, scheduled, publishing, published, failed, cancelled] }
+        hold_reason: { type: string }
+        needs_attention: { type: boolean }
+        revision_count: { type: integer }
+        plan: { type: object }
+        slot: { type: object, nullable: true }
+        candidate: { type: object }
+        active_job: { allOf: [{ $ref: "#/components/schemas/JobSummary" }], nullable: true }
+        thumbnail_url: { type: string, nullable: true }
+        publication: { type: object, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ContentItemPage:
+      type: object
+      properties:
+        count: { type: integer }
+        next: { type: string, nullable: true }
+        previous: { type: string, nullable: true }
+        results: { type: array, items: { $ref: "#/components/schemas/ContentItemSummary" } }
+    ContentItemDetail:
+      allOf:
+        - { $ref: "#/components/schemas/ContentItemSummary" }
+        - type: object
+          properties:
+            cancelled_reason: { type: string }
+            current_brief: { type: object, nullable: true }
+            current_script: { type: object, nullable: true }
+            current_version: { type: object, nullable: true }
+            latest_check: { type: object, nullable: true }
+            open_review_task: { type: object, nullable: true }
+            allowed_actions: { type: array, items: { type: string } }
+            created_by: { allOf: [{ $ref: "#/components/schemas/UserRef" }], nullable: true }
+            effects: { type: object, description: Only on PATCH responses (E04-S02) }
+    ContentEventPage:
+      type: object
+      properties:
+        count: { type: integer }
+        next: { type: string, nullable: true }
+        previous: { type: string, nullable: true }
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: integer }
+              type: { type: string, enum: [status_changed, job_started, job_failed, edited, qc_result, review_decision, publish_attempt, note] }
+              from_status: { type: string, nullable: true }
+              to_status: { type: string, nullable: true }
+              actor: { allOf: [{ $ref: "#/components/schemas/UserRef" }], nullable: true }
+              message: { type: string }
+              data: { type: object }
+              created_at: { type: string, format: date-time }
+    BriefWrite:
+      type: object
+      required: [base_version, objective, key_message, hook_direction, format_notes, success_metric]
+      properties:
+        base_version: { type: integer }
+        objective: { type: string, minLength: 20, maxLength: 400 }
+        key_message: { type: string, minLength: 10, maxLength: 200 }
+        hook_direction: { type: string, minLength: 10, maxLength: 300 }
+        audience_note: { type: string, maxLength: 300 }
+        cta: { type: string, maxLength: 120 }
+        must_include: { type: array, maxItems: 6, items: { type: string, maxLength: 120 } }
+        must_avoid: { type: array, maxItems: 6, items: { type: string, maxLength: 120 } }
+        references: { type: array, maxItems: 8, items: { type: object, properties: { title: { type: string }, url: { type: string } } } }
+        format_notes: { type: string, minLength: 10, maxLength: 600 }
+        success_metric: { $ref: "#/components/schemas/PlanMetric" }
+        note: { type: string, maxLength: 1000 }
+    Brief:
+      type: object
+      properties:
+        id: { type: integer }
+        version: { type: integer }
+        role: { $ref: "#/components/schemas/PlanRole" }
+        status: { type: string, enum: [draft, approved, superseded] }
+        origin: { type: string, enum: [ai, human] }
+        feedback: { type: string }
+        ai_run: { type: integer, nullable: true }
+        created_by: { allOf: [{ $ref: "#/components/schemas/UserRef" }], nullable: true }
+        created_at: { type: string, format: date-time }
+    BriefPage:
+      type: object
+      properties:
+        count: { type: integer }
+        results: { type: array, items: { $ref: "#/components/schemas/Brief" } }
+    BriefDocument:
+      type: object
+      properties:
+        content_item: { type: integer }
+        brief: { allOf: [{ $ref: "#/components/schemas/Brief" }], nullable: true }
+        latest_version: { type: integer }
+        approved_version: { type: integer, nullable: true }
+        validation: { type: object, properties: { valid: { type: boolean }, issues: { type: array, items: { type: object } } } }
+        warnings: { type: array, items: { type: object } }
+        actions: { type: object, properties: { can_generate: { type: boolean }, can_edit: { type: boolean }, can_approve: { type: boolean } } }
+        item_status: { type: string, description: Only on approve }
+    ScriptPackage:
+      type: object
+      description: The script package of DATA-MODEL.md (ScriptVersion payload)
+      required: [scenario, hook, duration_seconds, shots, frames, design_notes, cta, music_hint]
+    ScriptDocument:
+      type: object
+      properties:
+        content_item: { type: integer }
+        version: { type: integer }
+        latest_version: { type: integer }
+        approved_version: { type: integer, nullable: true }
+        status: { type: string, enum: [draft, approved, superseded] }
+        origin: { type: string, enum: [ai, human] }
+        feedback: { type: string }
+        brief_version: { type: integer }
+        brief_is_current: { type: boolean }
+        payload: { $ref: "#/components/schemas/ScriptPackage" }
+        validation: { type: object }
+        actions: { type: object }
+        unchanged: { type: boolean, description: Only on PUT }
+    Asset:
+      type: object
+      properties:
+        id: { type: integer }
+        account: { type: integer }
+        content_item: { type: integer, nullable: true }
+        kind: { type: string, enum: [image, video, audio, document] }
+        role: { type: string, enum: [source, background, clip, music, frame, cover, final] }
+        url: { type: string }
+        thumbnail_url: { type: string, nullable: true }
+        original_filename: { type: string }
+        mime: { type: string }
+        bytes: { type: integer }
+        width: { type: integer, nullable: true }
+        height: { type: integer, nullable: true }
+        duration_ms: { type: integer, nullable: true }
+        checksum: { type: string }
+        origin: { type: string, enum: [uploaded, licensed, ai_generated, rendered] }
+        rights_status: { type: string, enum: [cleared, unknown, restricted, expired], description: Effective value }
+        license_note: { type: string }
+        source_url: { type: string }
+        rights_expires_at: { type: string, format: date, nullable: true }
+        meta: { type: object }
+        in_use: { type: boolean }
+        duplicate: { type: boolean }
+        used_by: { type: array, items: { type: object } }
+    AssetPage:
+      type: object
+      properties:
+        count: { type: integer }
+        next: { type: string, nullable: true }
+        previous: { type: string, nullable: true }
+        results: { type: array, items: { $ref: "#/components/schemas/Asset" } }
+    ProductionResource:
+      type: object
+      description: Full shape in E06-S07 API; frames carry the working copy of E06-S02.
+      properties:
+        content_item: { type: integer }
+        version: { type: integer, nullable: true }
+        latest_version: { type: integer }
+        is_current: { type: boolean }
+        status: { type: string, nullable: true }
+        origin: { type: string, nullable: true }
+        render_status: { type: string, enum: [pending, rendering, ready, failed] }
+        frames: { type: array, items: { type: object } }
+        final_asset: { type: object, nullable: true }
+        cover_asset: { type: object, nullable: true }
+        music_asset: { type: object, nullable: true }
+        shots: { type: array, items: { type: object } }
+        clips: { type: array, items: { type: object } }
+        missing_shots: { type: array, items: { type: integer } }
+        caption: { type: string }
+        hashtags: { type: array, items: { type: string } }
+        alt_text: { type: string }
+        caption_preview: { type: string }
+        caption_length: { type: integer }
+        hashtag_count: { type: integer }
+        disclosure_required: { type: boolean }
+        copy_limits: { type: object }
+        uses_ai_generated: { type: boolean }
+        render_warnings: { type: array, items: { type: object } }
+        production_steps: { type: object }
+        active_job: { allOf: [{ $ref: "#/components/schemas/JobSummary" }], nullable: true }
+        actions: { type: object }
+        versions: { type: array, items: { type: object } }
+    # --- end E03-S04 / E04 / E05 / E06 schemas ---
   responses:
     ApiError:
       description: Safe structured API error.

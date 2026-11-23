@@ -1,0 +1,4 @@
+/* Stat template. Brand values only through CSS variables. */
+.tpl-stat .content { gap: 40px; }
+.tpl-stat .stat-number { color: var(--brand-primary); line-height: 1.1; letter-spacing: -0.01em; }
+.tpl-stat .body { font-weight: 700; line-height: 1.5; }
