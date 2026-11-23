@@ -6,7 +6,7 @@
 | Priority | Must |
 | Estimate | BE 2 d · FE 0 d · QA 0 d |
 | Depends on | E07-S01, E04-S01, E06-S01, E06-S07 |
-| Needed by | E07-S05, E07-S06, E08-S03 |
+| Needed by | E07-S05, E07-S06, E08-S05 |
 
 ## User story
 
@@ -16,7 +16,7 @@ As an operator, I want every version checked against Instagram's format rules an
 
 These are the two rule-based checks. They use no AI: the format check measures the real files with `ffprobe` and Pillow and compares them with the format registry from E04-S01; the rights check reads the rights metadata that E06-S01 stores on each asset. Both run first in every check run (E07-S01), are fast, and give exact, repeatable results.
 
-The publish worker (E08-S03) relies on the format check: a version that passed it should not be refused by Instagram for technical reasons.
+The operator posts the passed version by hand from the posting pack (E08-S05), and in Phase 2 the publish worker (E08-S03) sends it; both rely on the format check: a version that passed it should not be refused by Instagram for technical reasons.
 
 ## Scope
 

@@ -448,7 +448,7 @@ Character limits are stated in descriptions and enforced in code by `validate_br
 - Info alert when viewing an older version: "You are viewing version {k} ({status}). The latest is version {n}."
 - Info alert when the item is `briefed` or `scripted` and the latest version is a draft: "Version {n} is waiting for approval. Until then the script uses approved version {m}."
 
-**View mode.** `ProDescriptions`, one column:
+**View mode.** `Descriptions`, one column:
 
 | Label | Content |
 | --- | --- |
@@ -459,17 +459,17 @@ Character limits are stated in descriptions and enforced in code by `validate_br
 | References | Numbered links that open in a new tab, with the domain shown; "None" when empty |
 | Feedback or note | Shown when not empty, labelled "Written with feedback" (AI) or "Change note" (human) |
 
-**Edit mode.** `ProForm` in the same layout:
+**Edit mode.** `Form` (`useForm`) in the same layout:
 
-- `ProFormTextArea` for objective (3 rows), key message (2), hook direction (2), audience (2), call to action (1), format notes (4), each with a counter `n/limit` that turns red past the limit; `dir="auto"`.
-- `ProFormList` for must include and must avoid (up to 6, one text field per item), and for references (up to 8, title and URL side by side).
+- `Input.TextArea` for objective (3 rows), key message (2), hook direction (2), audience (2), call to action (1), format notes (4), each with a counter `n/limit` that turns red past the limit; `dir="auto"`.
+- `Form.List` for must include and must avoid (up to 6, one text field per item), and for references (up to 8, title and URL side by side).
 - Success metric `Select` limited by rule 2 for the item's format and media kind, each option marked when it is one of the plan's success metrics.
 - "What changed? (optional)" text field, 1,000 characters.
 - Footer: "Save as new version" (primary, disabled while nothing changed) and "Cancel".
 - Server field errors appear under their fields. Leaving with unsaved changes asks "You have unsaved changes. Leave without saving?"
 - `version_conflict`: a modal "Version {n} was written by {AI / name} while you were editing." with "Load latest" (discards the form after a confirm) and "Keep editing" (keeps the form; the next save sends the new `base_version` after the operator has looked at the latest version in a side panel).
 
-**Regenerate modal.** `ModalForm` "Regenerate brief" with a text area "What should change? (optional)", 1,000 characters, and the line "The current version stays in the history." Submit "Regenerate" starts the job with `feedback` and `base_version`; the modal closes and `JobProgress` appears.
+**Regenerate modal.** `Modal` form (`useModalForm`) "Regenerate brief" with a text area "What should change? (optional)", 1,000 characters, and the line "The current version stays in the history." Submit "Regenerate" starts the job with `feedback` and `base_version`; the modal closes and `JobProgress` appears.
 
 **Empty and locked states.**
 

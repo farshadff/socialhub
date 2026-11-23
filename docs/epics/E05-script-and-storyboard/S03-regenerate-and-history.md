@@ -241,12 +241,12 @@ Route: `/content/:id`, tab **Script**. Two controls are added to the editor head
 
 ### Regenerate dialog
 
-`ModalForm`, title "Regenerate script".
+`Modal` form (`useModalForm`), title "Regenerate script".
 
 | Element | Detail |
 | --- | --- |
 | Text | "The AI rewrites version {n} using your direction. The current version is kept in history." |
-| Field | `ProFormTextArea` "What should change?" — 2,000 character counter, `dir="auto"`, placeholder "For example: open with a question; drop the second statistic; make it 20 seconds." |
+| Field | `Input.TextArea` "What should change?" — 2,000 character counter, `dir="auto"`, placeholder "For example: open with a question; drop the second statistic; make it 20 seconds." |
 | Checkbox | "Start over from the brief (ignore the current script)" — unchecked by default. When checked, the text field becomes optional and is sent as extra direction with no `base_version` payload reuse; a line of help says "The new script will not be based on version {n}." |
 | Buttons | "Regenerate" (primary; disabled while the field is empty and the checkbox is unchecked) and "Cancel" |
 | Unsaved changes | If the editor has unsaved changes, the dialog shows a warning: "You have unsaved changes. Save them first, or they will not be part of the rewrite." with a "Save now" link that runs the save flow and returns. |

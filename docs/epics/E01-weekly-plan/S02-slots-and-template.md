@@ -10,7 +10,7 @@
 
 ## User story
 
-As an operator, I want to define when each Reel, Story and feed post goes out this week, so that selection knows how many pieces to prepare and publishing knows when to send them.
+As an operator, I want to define when each Reel, Story and feed post goes out this week, so that selection knows how many pieces to prepare and scheduling knows when each one is due.
 
 ## Context
 
@@ -62,7 +62,7 @@ A slot is one planned post: a time and a format, optionally with a role. Selecti
 10. A plan has at most 60 slots.
 11. `scheduled_at` must fall inside the plan week in the account's timezone (from 00:00 on `week_start` to 23:59 on `week_end`) and be at least 30 minutes in the future when created or moved.
 12. The posting rules in rule 4 apply to a plan's slots per calendar day in the account's timezone, ignoring `skipped` slots.
-13. New slots have status `open`. Status changes made by other stories: `open` → `reserved` when selection assigns an item (E03-S03); `reserved` → `scheduled` when a publication is created (E08-S01); `scheduled` → `published` on publish (E08-S03). When its item is cancelled or rejected, the slot is released (E03-S04 cancel rule): back to `open` if its time is still in the future, otherwise `skipped`.
+13. New slots have status `open`. Status changes made by other stories: `open` → `reserved` when selection assigns an item (E03-S03); `reserved` → `scheduled` when a publication is created (E08-S01); `scheduled` → `published` when the publication is marked published (E08-S05; in Phase 2 also by the publish worker, E08-S03). When its item is cancelled or rejected, the slot is released (E03-S04 cancel rule): back to `open` if its time is still in the future, otherwise `skipped`.
 14. What an operator can change through this story:
 
     | Slot status | `scheduled_at` | `format` | `role`, `note` | Skip / unskip | Delete |
@@ -218,7 +218,7 @@ Toolbar: "Add slot", "Generate from template" (with a dropdown item "Replace ope
 
 Below 1200 px the grid becomes a list grouped by day.
 
-**Add or edit slot** (`ModalForm`): Date (limited to the plan week), Time (5-minute steps), Format (select; disabled for reserved slots), Role (optional select with one-line explanations), Note. Submit labels "Add slot" and "Save slot". API field errors appear under the field, for example "This would be the third feed post or reel that day. The account allows 2."
+**Add or edit slot** (`Modal` form (`useModalForm`)): Date (limited to the plan week), Time (5-minute steps), Format (select; disabled for reserved slots), Role (optional select with one-line explanations), Note. Submit labels "Add slot" and "Save slot". API field errors appear under the field, for example "This would be the third feed post or reel that day. The account allows 2."
 
 **Generate from template.** Calls generate and shows "9 slots created, 1 skipped". "Replace open slots" asks: "Delete the 6 open slots and generate again? Reserved and scheduled slots are kept." When the account has no template, the button opens the template drawer with the message "Set up the usual week first."
 

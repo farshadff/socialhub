@@ -203,7 +203,7 @@ None.
 
 ### Topics tab
 
-A `ProTable` in a `ProCard`.
+A `Table` (`useTable`) in a `Card`.
 
 | Column | Content |
 | --- | --- |
@@ -225,32 +225,32 @@ Clicking a row or "View" opens the **topic drawer** (`Drawer`, width 640):
 | Header | Title, `StatusTag`, action buttons for the status (rule 12), "Edit" |
 | Summary | `summary`, then "Why now" with `why_now` |
 | Hooks | Numbered list; each line has a copy icon ("Copy hook") |
-| Details | `ProDescriptions`: formats, keywords as tags, origin, plan, found date |
+| Details | `Descriptions`: formats, keywords as tags, origin, plan, found date |
 | Evidence | Score, then four labelled bars for the components, with one line under the title: "Calculated from the signals below." For a score of 0 with no signals: "No evidence attached yet. Add signals to give this topic a score." |
 | Signals | List of linked signals: kind tag, title (`ContentText`) as an external link, author, published date or "No date", metrics when present ("9,200 likes · 310 comments · 180,000 views"), excerpt collapsed to two lines. Button "Attach signals" |
 
 **Attach signals** opens a `Modal` with a searchable signal table (calls `GET /research/signals/` with `q`), checkboxes pre-ticked for linked signals, a counter "{n} of 20 selected", and "Save". It sends `PATCH {signal_ids}`. For a `new` topic the modal shows the note "Saving also adds this topic to the shortlist."
 
-**Edit** switches the drawer body to a `ProForm`:
+**Edit** switches the drawer body to a `Form` (`useForm`):
 
 | Field | Control | Validation |
 | --- | --- | --- |
 | Title | `Input` | Required, 3–120 characters |
 | Summary | `TextArea`, 3 rows | Up to 600 |
 | Why now | `TextArea`, 2 rows | Up to 300 |
-| Hooks | `ProFormList` of `Input` | Up to 5, each up to 160 |
+| Hooks | `Form.List` of `Input` | Up to 5, each up to 160 |
 | Formats | `Checkbox.Group` | Up to 3 |
 | Keywords | `Select` in tags mode | Up to 8, each up to 40 |
 
 Buttons: "Save" ("Save and shortlist" when the topic is `new`), "Cancel". Text inputs use `dir="auto"`. Unsaved changes prompt "Discard your changes?" on close.
 
-**Add topic** opens a `ModalForm` "Add topic" with the same fields plus "Plan" (defaults to the header's plan). It sends `POST /research/topics/`. On success: "Topic added to the shortlist", the table reloads and the new topic's drawer opens so signals can be attached.
+**Add topic** opens a `Modal` form (`useModalForm`) "Add topic" with the same fields plus "Plan" (defaults to the header's plan). It sends `POST /research/topics/`. On success: "Topic added to the shortlist", the table reloads and the new topic's drawer opens so signals can be attached.
 
 Messages: "Topic shortlisted", "Topic removed from shortlist", "Topic dismissed", "Topic restored" (each with "Undo"), "Topic saved".
 
 ### Signals tab
 
-A `ProTable` in a `ProCard`.
+A `Table` (`useTable`) in a `Card`.
 
 | Column | Content |
 | --- | --- |
@@ -265,7 +265,7 @@ A `ProTable` in a `ProCard`.
 
 Toolbar: Kind (multi-select), Source (select), Run (select of recent runs by date), "Not in any topic" (checkbox, sends `unassigned=true`), captured date range, search box. Primary button: "Add signal".
 
-**Add signal** opens a `ModalForm` "Add signal":
+**Add signal** opens a `Modal` form (`useModalForm`) "Add signal":
 
 | Field | Control | Validation |
 | --- | --- | --- |
@@ -281,7 +281,7 @@ On a `unique` error the modal shows "This link is already saved as a signal." wi
 
 ### Runs tab
 
-A `ProTable` in a `ProCard`, newest first.
+A `Table` (`useTable`) in a `Card`, newest first.
 
 | Column | Content |
 | --- | --- |
@@ -354,7 +354,7 @@ Other states: while a research run is active, a slim `Alert` on the Topics tab s
 
 | ID | Task | Detail | Est. |
 | --- | --- | --- | --- |
-| E02-S05-FE1 | Topics table | `src/pages/research/TopicsTab.tsx`: `ProTable` with columns, default filters bound to the header plan, evidence cell with breakdown tooltip, status actions with optimistic update and Undo, empty states. | 0.75 d |
+| E02-S05-FE1 | Topics table | `src/pages/research/TopicsTab.tsx`: `Table` (`useTable`) with columns, default filters bound to the header plan, evidence cell with breakdown tooltip, status actions with optimistic update and Undo, empty states. | 0.75 d |
 | E02-S05-FE2 | Topic drawer and edit | `TopicDrawer.tsx`: read view (summary, hooks with copy, details, evidence bars, signal list), edit form with limits and `dir="auto"`, "Save and shortlist" label, unsaved-changes guard, `AttachSignalsModal.tsx` with search and 20-item cap. | 0.75 d |
 | E02-S05-FE3 | Add topic | `TopicFormModal.tsx` reusing the edit form fields plus Plan; opens the drawer after create; server field errors mapped to fields. | 0.25 d |
 | E02-S05-FE4 | Signals tab | `SignalsTab.tsx`: table, filters (kind, source, run, unassigned, date range, search), metrics formatting, topics count with tooltip; `SignalFormModal.tsx` with the duplicate-link flow. | 0.5 d |

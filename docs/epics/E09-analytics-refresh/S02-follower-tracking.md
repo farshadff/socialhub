@@ -1,12 +1,16 @@
-# E09-S02 — Follower tracking per account
+# E09-S02 — Collect follower counts from Instagram daily
+
+> **Phase 2 — not built in Phase 1.** Phase 1 has no Instagram API, so the operator types the follower count in from the Instagram app, prompted on the first day of each plan week ([E09-S04](S04-entry-checkpoints.md) reminds, [E09-S03](S03-analytics-views.md) records).
+>
+> The follower change rules in this file (rules 11–15, `follower_change` on a row and `follower_change(account, from_date, to_date)`) apply in Phase 1 to the manual rows and are built with E09-S03. The `AccountSnapshot` model with nullable `following` and `media_count` is built in Phase 1 by E09-S04. This story adds the daily provider reading (`source = provider`) and the follower fields of `sync_status` (rule 16).
 
 | | |
 | --- | --- |
 | Epic | E09 Analytics refresh |
-| Priority | Must |
+| Priority | Phase 2 |
 | Estimate | BE 1 d · FE 0 d |
 | Depends on | E00-S03, E00-S04, E09-S01 |
-| Needed by | E09-S03, E10-S02, E11-S01 |
+| Needed by | Phase 2 additions to E11-S01 |
 
 ## User story
 
@@ -80,13 +84,7 @@ The workflow's step 09 says "Track follower change by account". Follower growth 
 
 ## Data
 
-Uses `AccountSnapshot` from [DATA-MODEL.md](../../DATA-MODEL.md). Changes:
-
-| Field | Change | Why |
-| --- | --- | --- |
-| `following`, `media_count` | Becomes nullable | Manual entry (E09-S03) may know only the follower count |
-
-Constraint: `followers >= 0`; `following` and `media_count` are null or `>= 0`.
+Uses `AccountSnapshot` from [DATA-MODEL.md](../../DATA-MODEL.md). The nullable `following` and `media_count` and the constraints (`followers >= 0`; `following` and `media_count` null or `>= 0`) moved to [E09-S04](S04-entry-checkpoints.md), which builds the model in Phase 1. This story adds the value `provider` to `source`.
 
 Provider type in `apps/instagram/providers/base.py` (fields as in INSTAGRAM-INTEGRATION.md section 7), implemented by this story:
 

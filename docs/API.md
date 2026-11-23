@@ -2,6 +2,8 @@
 
 All endpoints live under `/api/v1/`. This file is the contract the panel builds against. Each story specification gives the full request and response shapes for its endpoints; `docs/openapi.yaml` is extended in the same change that adds an endpoint.
 
+It describes **Phase 1**, the plan to build now ([ROADMAP.md](ROADMAP.md) section 0). Endpoints and error codes marked **(Phase 2)** belong to the Instagram API phase: they are reserved, not built in Phase 1, and not added to `openapi.yaml` until then.
+
 ## 1. Conventions
 
 ### Authentication and permissions
@@ -18,7 +20,7 @@ Almost every resource belongs to one Instagram account.
 - List endpoints require `?account={id}` and return `400 validation_error` on `account` when it is missing.
 - Create endpoints take `account` in the body, or inherit it from the parent in the URL.
 - The panel keeps the current account in its top bar and adds the parameter to every call.
-- Not account-scoped: `/accounts/`, `/fonts/`, `/system/*`, `/ai/runs/` (account optional; the list adds `totals`), and the public `/instagram/oauth/callback/` (section 2, E00). `/fonts/` is not paginated (`{"results": [...]}`). `/candidates/` and `/selection/proposal/` also require `plan`.
+- Not account-scoped: `/accounts/`, `/fonts/`, `/system/*`, `/ai/runs/` (account optional; the list adds `totals`), and (Phase 2) the public `/instagram/oauth/callback/` (section 2, E00). `/fonts/` is not paginated (`{"results": [...]}`). `/candidates/` and `/selection/proposal/` also require `plan`.
 - A resource outside the user's accounts, or one that does not exist, returns `404 not_found`.
 
 ### Shapes
@@ -112,12 +114,14 @@ Additions for the MVP:
 | `job_in_progress` | 409 | The target already has an active job |
 | `version_conflict` | 409 | `base_version` is not the latest |
 | `provider_not_configured` | 503 | A required API key or provider setting is missing |
-| `provider_error` | 502 | The AI or Instagram provider failed |
-| `instagram_not_connected` | 409 | The account is not connected to Instagram, or its connection is `needs_attention` |
-| `instagram_permission_missing` | 409 | The connection lacks an Instagram permission the action needs |
-| `publishing_disabled` | 409 | The account's stop switch is off |
-| `insights_unavailable` | 409 | Metrics were requested for an account whose provider is `manual` or whose `insights` capability is false |
+| `provider_error` | 502 | The AI provider failed (Phase 2: or the Instagram provider) |
+| `instagram_not_connected` (Phase 2) | 409 | The account is not connected to Instagram, or its connection is `needs_attention` |
+| `instagram_permission_missing` (Phase 2) | 409 | The connection lacks an Instagram permission the action needs |
+| `publishing_disabled` (Phase 2) | 409 | The account's stop switch is off |
+| `insights_unavailable` (Phase 2) | 409 | Metrics were requested for an account whose provider is `manual` or whose `insights` capability is false |
 | `unsupported_media` | 400 | The uploaded file fails format rules; each field error carries `reason`: `type_not_allowed`, `extension_mismatch`, `empty_file`, or a format-rule reason defined by the owning story |
+
+The connection codes in [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGRATION.md) section 7 are Phase 2 as well.
 
 Existing codes with MVP meanings:
 
@@ -132,7 +136,7 @@ The API's `message` stays as implemented (Persian). The panel shows its own Engl
 
 ### Idempotency
 
-Create endpoints that would be harmful to repeat (`/selection/confirm/`, `/review-tasks/{id}/resolve/`, `/publications/{id}/publish-now/`, `/publications/{id}/retry/`) accept an `Idempotency-Key` header of 8–64 characters.
+Create endpoints that would be harmful to repeat (`/selection/confirm/`, `/review-tasks/{id}/resolve/`; Phase 2: `/publications/{id}/publish-now/`, `/publications/{id}/retry/`) accept an `Idempotency-Key` header of 8–64 characters.
 
 - The first 2xx response for (user, method, path, key) is stored for 24 hours with a SHA-256 of the request body (`core.IdempotencyKey`).
 - The same key and body returns the stored response with the header `Idempotency-Replayed: true`.
@@ -152,25 +156,25 @@ Create endpoints that would be harmful to repeat (`/selection/confirm/`, `/revie
 | `POST /auth/logout/` | Sign out | E00-S01 |
 | `GET /auth/me/` | Current user and role | E00-S01 |
 | `GET /accounts/` · `POST /accounts/` (**admin**) | List and create Instagram accounts | E00-S03 |
-| `GET /accounts/{id}/` · `PATCH /accounts/{id}/` | Read and update an account (`handle`, `publishing_enabled`, `autopilot`, `status` are **admin**) | E00-S03 |
+| `GET /accounts/{id}/` · `PATCH /accounts/{id}/` | Read and update an account (`handle`, `autopilot`, `status` are **admin**; `publishing_enabled` is Phase 2) | E00-S03 |
 | `GET /accounts/{id}/brand/` · `PUT /accounts/{id}/brand/` | Brand profile | E00-S03 |
 | `POST /accounts/{id}/brand/logo/` | Upload a logo (`variant=light|dark`) | E00-S03 |
 | `GET /fonts/` | Bundled fonts available to brand profiles | E00-S03 |
-| `GET /accounts/{id}/connection/` | Status, username, account type, token expiry, scopes, capabilities and `has_token` (never the token) | E00-S04 |
-| `PATCH /accounts/{id}/connection/` (**admin**) | Choose the provider (`graph_api`, `manual`, `fake`), only while `disconnected`; `manual` connects at once with every capability false | E00-S04 |
-| `POST /accounts/{id}/connection/connect/` (**admin**) | Start "Connect with Instagram": returns `authorize_url` and `expires_at` (the OAuth state lives 10 minutes) | E00-S04 |
-| `GET /instagram/oauth/callback/` | Instagram's OAuth redirect (public); finishes the connection and redirects the browser to the account's Connection tab | E00-S04 |
-| `POST /accounts/{id}/connection/verify/` | Re-check the token, permissions and capabilities → job | E00-S04 |
-| `POST /accounts/{id}/connection/refresh-token/` (**admin**) | Refresh the long-lived token now → job | E00-S04 |
-| `DELETE /accounts/{id}/connection/` (**admin**) | Disconnect: delete the stored token, set every capability false, turn `publishing_enabled` off | E00-S04 |
-| `GET /system/status/` (**admin**) | Which providers and keys are configured; whether the Meta app settings are configured and the pinned Graph API version; versions and `release` | E00-S05, E11-S02 |
+| `GET /accounts/{id}/connection/` (Phase 2) | Status, username, account type, token expiry, scopes, capabilities and `has_token` (never the token) | E00-S04 |
+| `PATCH /accounts/{id}/connection/` (**admin**) (Phase 2) | Choose the provider (`graph_api`, `manual`, `fake`), only while `disconnected`; `manual` connects at once with every capability false | E00-S04 |
+| `POST /accounts/{id}/connection/connect/` (**admin**) (Phase 2) | Start "Connect with Instagram": returns `authorize_url` and `expires_at` (the OAuth state lives 10 minutes) | E00-S04 |
+| `GET /instagram/oauth/callback/` (Phase 2) | Instagram's OAuth redirect (public); finishes the connection and redirects the browser to the account's Connection tab | E00-S04 |
+| `POST /accounts/{id}/connection/verify/` (Phase 2) | Re-check the token, permissions and capabilities → job | E00-S04 |
+| `POST /accounts/{id}/connection/refresh-token/` (**admin**) (Phase 2) | Refresh the long-lived token now → job | E00-S04 |
+| `DELETE /accounts/{id}/connection/` (**admin**) (Phase 2) | Disconnect: delete the stored token, set every capability false, turn `publishing_enabled` off | E00-S04 |
+| `GET /system/status/` (**admin**) | Which providers and keys are configured; versions and `release`. (Phase 2: also whether the Meta app settings are configured and the pinned Graph API version) | E00-S05, E11-S02 |
 | `POST /system/ai-test/` (**admin**) | One text call and one image call → job | E00-S05 |
 | `GET /ai/runs/` (**admin**) | AI call log with filters and `totals` | E00-S05 |
 | `GET /ai/runs/{id}/` (**admin**) | One AI call with its payload | E00-S05 |
 | `GET /jobs/{id}/` | One job | E00-S06 |
 | `GET /jobs/` | Jobs by `account` (required for operators; admins may omit it or pass `account=none` for system jobs), `kind`, `kind_prefix`, `status`, `target_type`, `target_id`, `created_after`, `created_before` | E00-S06 |
 
-The OAuth callback is public because Instagram's redirect lands on it. It needs no signed-in session and takes no `account` parameter: the `state` that `connect/` stored in Redis identifies the account and the admin, and an unknown or expired `state` is refused. It finishes the token exchange synchronously and answers with a redirect, not JSON: `/settings/accounts/{id}?tab=connection&connect=success`, or `&connect=error&code={code}` with a connection code from [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGRATION.md) section 7.
+(Phase 2) The OAuth callback is public because Instagram's redirect lands on it. It needs no signed-in session and takes no `account` parameter: the `state` that `connect/` stored in Redis identifies the account and the admin, and an unknown or expired `state` is refused. It finishes the token exchange synchronously and answers with a redirect, not JSON: `/settings/accounts/{id}?tab=connection&connect=success`, or `&connect=error&code={code}` with a connection code from [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGRATION.md) section 7.
 
 ### E01 Weekly plan
 
@@ -269,29 +273,29 @@ The OAuth callback is public because Instagram's redirect lands on it. It needs 
 | `GET /review-tasks/{id}/` | One task with item, version and findings | E07-S06 |
 | `POST /review-tasks/{id}/resolve/` | Approve, request changes or reject | E07-S06 |
 
-### E08 Schedule and publish
+### E08 Schedule and post
 
 | Method and path | Purpose | Story |
 | --- | --- | --- |
-| `GET /publications/` · `GET /publications/{id}/` | Publications with attempts | E08-S02 |
+| `GET /publications/` · `GET /publications/{id}/` | Publications. The detail carries `posting_pack` (signed asset and cover URLs and filenames, the full caption, hashtags, format and media kind; caption null for stories). (Phase 2: attempts) | E08-S02, E08-S05 (`posting_pack`) |
 | `GET /calendar/` | Slots and publications for a date range | E08-S02 |
 | `POST /publications/{id}/reschedule/` | Move to another time or slot | E08-S02 |
 | `POST /publications/{id}/cancel/` | Cancel a scheduled publication | E08-S02 |
-| `POST /publications/{id}/publish-now/` | Send as soon as rules allow | E08-S03 |
-| `POST /publications/{id}/retry/` | Retry a failed publication | E08-S04 |
-| `POST /publications/{id}/mark-published/` | Record a post made by hand, with its link | E08-S04 |
+| `POST /publications/{id}/mark-published/` | Record a post made by hand: `permalink` and optional `published_at` | E08-S05 |
+| `POST /publications/{id}/publish-now/` (Phase 2) | Send as soon as rules allow | E08-S03 |
+| `POST /publications/{id}/retry/` (Phase 2) | Retry a failed publication | E08-S04 |
 
 ### E09 Analytics refresh
 
 | Method and path | Purpose | Story |
 | --- | --- | --- |
-| `POST /analytics/refresh/` | Pull metrics now for an account or one publication → job | E09-S03 |
 | `GET /analytics/posts/` | Published posts with their latest metrics and `latest_evaluation`; filter `verdict` | E09-S03, E10-S01 |
 | `GET /analytics/posts/{publication_id}/` | One post with all snapshots | E09-S03 |
 | `POST /analytics/posts/{publication_id}/snapshots/` | Enter metrics by hand | E09-S03 |
 | `GET /analytics/account/` | Follower series and change for a date range | E09-S03 |
-| `GET /analytics/sync-status/` | Last successful metric and follower sync per account, overdue counts | E09-S01 |
 | `POST /analytics/account/snapshots/` | Enter a follower count by hand | E09-S03 |
+| `GET /analytics/sync-status/` | Metric entry status for the account: `metrics_due`, `metrics_missed_7d`, `followers_due`, `last_entry_at` | E09-S04 |
+| `POST /analytics/refresh/` (Phase 2) | Pull metrics now for an account or one publication → job | E09-S03 |
 
 ### E10 Evaluate and feed back
 
@@ -311,7 +315,7 @@ The OAuth callback is public because Instagram's redirect lands on it. It needs 
 
 | Method and path | Purpose | Story |
 | --- | --- | --- |
-| `GET /overview/` | This week's counts by status, attention list, next publications, sync health | E11-S01 |
+| `GET /overview/` | This week's counts by status, attention list, next publications, metrics entry (from `sync_status`) | E11-S01 |
 | `GET /health/live/` · `GET /health/ready/` | Existing health checks (public) | — |
 
 Test-only hooks for the acceptance suite (E11-S03). They exist only when `SOCIALHUB_TESTING_HOOKS=true`, are admin-only, are refused in production, and are not part of `openapi.yaml`: `GET`/`POST /testing/fakes/`, `POST /testing/reset/`, `POST /testing/clock/`, `GET`/`POST /testing/run-task/`, `GET /testing/idle/`.

@@ -1,12 +1,16 @@
-# E09-S01 — Post metric snapshots at fixed ages
+# E09-S01 — Collect post metrics from Instagram at fixed ages
+
+> **Phase 2 — not built in Phase 1.** Phase 1 has no Instagram API, so the operator types each post's numbers in from the Instagram app at the evaluation checkpoints instead ([E09-S04](S04-entry-checkpoints.md) asks for them, [E09-S03](S03-analytics-views.md) records them).
+>
+> Phase 1 already builds parts this story relies on: the checkpoint table in `apps/analytics/services/checkpoints.py` (ages and formats), the `MetricSnapshot` rows with `status` and `skip_reason` (the Data section below), the pointer guard of the snapshot writer, and `sync_status(account)`. E09-S04 owns the pointer in Phase 1: it starts at the first evaluation checkpoint (`24h`, or `23h` for stories), not at `1h`, and is moved by entries and by `analytics.advance_entry_checkpoints`. This story adds the collector, the metric map, the skip and give-up ages for automatic collection, `source = provider` rows and the provider fields of `sync_status`.
 
 | | |
 | --- | --- |
 | Epic | E09 Analytics refresh |
-| Priority | Must |
+| Priority | Phase 2 |
 | Estimate | BE 3 d · FE 0 d |
 | Depends on | E00-S04, E00-S06, E04-S01, E08-S03, E08-S04 |
-| Needed by | E09-S03, E10-S01, E10-S02, E11-S01 |
+| Needed by | Phase 2 additions to E09-S03 (refresh) and E11-S01 |
 
 ## User story
 
@@ -145,19 +149,7 @@ This story has no panel work. E09-S03 shows the snapshots, offers manual entry a
 
 ## Data
 
-Uses `MetricSnapshot` and `Publication` from [DATA-MODEL.md](../../DATA-MODEL.md). New fields on `MetricSnapshot`:
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `status` | enum | `captured` (default) or `skipped` |
-| `skip_reason` | enum, null | `missed`, `insights_unavailable`, `media_not_found`, `expired`, `gave_up`; set only when `status = skipped` |
-
-Constraints and indexes:
-
-- Partial unique constraint on (`publication`, `checkpoint`) where `checkpoint <> 'adhoc'`.
-- Check constraint: `status = 'skipped'` if and only if `skip_reason` is not null.
-- Index on `MetricSnapshot(publication, captured_at)`.
-- Partial index on `Publication(next_metrics_at)` where `next_metrics_at IS NOT NULL`.
+Uses `MetricSnapshot` and `Publication` from [DATA-MODEL.md](../../DATA-MODEL.md). The `MetricSnapshot` fields `status` (`captured` or `skipped`) and `skip_reason`, the partial unique constraint on (`publication`, `checkpoint`), the check constraint and the two indexes moved to [E09-S04](S04-entry-checkpoints.md), which builds them in Phase 1. Phase 1 writes only the skip reason `missed`; this story writes the reserved values `insights_unavailable`, `media_not_found`, `expired` and `gave_up`, and adds the value `provider` to `source`.
 
 Settings: `SOCIALHUB_METRICS_MAX_POSTS_PER_ACCOUNT_CYCLE` (10), `SOCIALHUB_METRICS_LOCK_WAIT_SECONDS` (10), `SOCIALHUB_METRICS_OVERDUE_MINUTES` (60).
 

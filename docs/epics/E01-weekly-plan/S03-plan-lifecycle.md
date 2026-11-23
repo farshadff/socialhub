@@ -153,7 +153,7 @@ Actions live in the header of `/plans/:planId` and in the row menu of `/plans`.
 
 **Close plan.** When the week has ended: `Modal.confirm` "Close this plan? Open slots will be marked as skipped and the weekly report will be prepared." When it has not ended: the modal adds a warning line, "This week ends on 4 Dec. Closing now skips 4 open slots; items already in production keep going." and the confirm label is "Close early", which sends `force: true`. On success: "Plan closed. 2 slots skipped, 1 item still in progress."
 
-**Duplicate.** `ModalForm` with Week (same picker as "New plan", defaulting to the following week) and "Copy slots" (checked). Submit label "Create copy". On success, go to the new plan with the message "Plan copied. Review the goals and slots before activating."
+**Duplicate.** `Modal` form (`useModalForm`) with Week (same picker as "New plan", defaulting to the following week) and "Copy slots" (checked). Submit label "Create copy". On success, go to the new plan with the message "Plan copied. Review the goals and slots before activating."
 
 States: every action button shows a loading state while its request runs and is disabled against double clicks. A `409` reloads the plan.
 

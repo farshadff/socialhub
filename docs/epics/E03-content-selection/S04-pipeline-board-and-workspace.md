@@ -70,19 +70,19 @@ The backend parts BE1 and BE2 must land before E03-S03's confirm service, which 
    | `in_review` | `in_check` | E07-S01, manual recheck |
    | `approved` | `scheduled` | E08-S01, publication created |
    | `approved` | `in_review` | E08-S01, no publish time left (review task `no_slot`) |
-   | `scheduled` | `publishing` | E08-S03, worker claimed it |
-   | `scheduled` | `in_review` | E08-S03, the lateness gate finds no time (`no_slot`) |
-   | `scheduled` | `failed` | E08-S03 gate 5, defensive check `version_changed` (publication failed, review task `publish_failed`) |
-   | `scheduled` | `published` | E08-S04, marked published by hand |
-   | `publishing` | `published` | E08-S03 or E08-S04, confirmed live |
-   | `publishing` | `scheduled` | E08-S03 or E08-S04, claim released, waiting to retry or blocked |
-   | `publishing` | `failed` | E08-S04, retries exhausted or fatal error |
-   | `failed` | `scheduled` | E08-S04, retry |
-   | `failed` | `published` | E08-S04, marked published by hand |
-   | `failed` | `needs_revision` | E07-S06 request changes on a `publish_failed` task, through E08-S04's `on_review_decision` hook |
+   | `scheduled` | `published` | E08-S05, marked published by hand |
+   | `scheduled` | `publishing` | Phase 2: E08-S03, worker claimed it |
+   | `scheduled` | `in_review` | Phase 2: E08-S03, the lateness gate finds no time (`no_slot`) |
+   | `scheduled` | `failed` | Phase 2: E08-S03 gate 5, defensive check `version_changed` (publication failed, review task `publish_failed`) |
+   | `publishing` | `published` | Phase 2: E08-S03 or E08-S04, confirmed live |
+   | `publishing` | `scheduled` | Phase 2: E08-S03 or E08-S04, claim released, waiting to retry or blocked |
+   | `publishing` | `failed` | Phase 2: E08-S04, retries exhausted or fatal error |
+   | `failed` | `scheduled` | Phase 2: E08-S04, retry |
+   | `failed` | `published` | Phase 2: E08-S04, marked published by hand |
+   | `failed` | `needs_revision` | Phase 2: E07-S06 request changes on a `publish_failed` task, through E08-S04's `on_review_decision` hook |
    | any except `published`, `cancelled`, `publishing` | `cancelled` | This story, cancel |
 
-   `published` and `cancelled` are terminal. The table lives in one constant, `ALLOWED_TRANSITIONS`, and is the reference for the other epics.
+   `published` and `cancelled` are terminal. The rows marked Phase 2 stay in the table so the publish worker can be added without changing the state machine; no Phase 1 code makes those moves, so Phase 1 items never reach `publishing` or `failed`. The table lives in one constant, `ALLOWED_TRANSITIONS`, and is the reference for the other epics.
 4. **`advance(item_id)`** loads the item and calls the handler registered for its current status. A handler decides whether to enqueue a job or to wait for a person, reading the account's `autopilot` switches. Handlers are registered by their owning app at startup with `pipeline.register_handler(status, fn)`, so `content` does not import later apps:
 
    | Status | Handler registered by | What it does |
@@ -112,7 +112,7 @@ The backend parts BE1 and BE2 must land before E03-S03's confirm service, which 
 ### Cancelling
 
 13. Operators and admins may cancel. A reason of 3 to 500 characters is required.
-14. Cancel is allowed in every status except `published`, `cancelled` and `publishing`. While `publishing`, the API returns `409 invalid_transition`; the operator waits for the attempt to end.
+14. Cancel is allowed in every status except `published`, `cancelled` and `publishing`. While `publishing` (Phase 2 only), the API returns `409 invalid_transition`; the operator waits for the attempt to end.
 15. Effects, in one transaction:
     - An active job is marked `cancelled` and its Celery task is revoked (best effort); `active_job` is cleared.
     - `status` → `cancelled`, `cancelled_reason` stored, `hold_reason` cleared.
@@ -343,9 +343,9 @@ None.
 
 ### `/content` — pipeline
 
-- `PageContainer` titled "Content", description "Every piece of content and where it stands."
+- `PageFrame` titled "Content", description "Every piece of content and where it stands."
 - **Toolbar:** plan select (default: current plan; option "All plans"), status multi-select, format multi-select, role select, switch "Needs attention", search box, and a `Segmented` control "List | Board" whose choice is stored in local storage. Filters are mirrored in the query string so a view can be shared.
-- **List view:** `ProTable`, 20 per page.
+- **List view:** `Table` (`useTable`), 20 per page.
 
   | Column | Content |
   | --- | --- |
@@ -376,7 +376,7 @@ None.
 
 ### `/content/:id` — item workspace shell
 
-- **Header (`PageContainer`):** title (`ContentText`), `StatusTag`, format tag, role tag, slot time (`DateTime`) or "No slot". Extra actions on the right: "Cancel item" (when `cancel` is in `allowed_actions`) and "Open review task" (when `open_review_task` is set, linking to `/review/{taskId}`).
+- **Header (`PageFrame`):** title (`ContentText`), `StatusTag`, format tag, role tag, slot time (`DateTime`) or "No slot". Extra actions on the right: "Cancel item" (when `cancel` is in `allowed_actions`) and "Open review task" (when `open_review_task` is set, linking to `/review/{taskId}`).
 - **Alerts under the header, in this order:** `JobProgress` when `active_job` is set; a warning alert with `hold_reason` when it is set and no job is active; an error alert "Cancelled: {cancelled_reason}" for cancelled items.
 - **Step indicator:** Ant Design `Steps`, horizontal, small: Selected → Brief → Script → Production → Check → Schedule → Published. Mapping: `selected` → Brief in progress; `briefed` → Script in progress; `scripted`, `in_production`, `needs_revision` → Production in progress; `in_check`, `in_review` → Check in progress (`in_review` and `needs_revision` shown with the warning status); `approved`, `scheduled`, `publishing` → Schedule in progress; `failed` → Schedule with error status; `published` → all finished.
 - **Source card (right column, 320 px, collapsible):** candidate kind tag, rank, total score with the three sub-scores, rationale, summary, and the sources as links.
@@ -421,7 +421,7 @@ None.
 8. Given two items, one with a slot tomorrow and one without a slot, when I list with the default ordering, then the item with the slot comes first.
 9. Given an item in `briefed` with a reserved future slot, when I cancel it with a reason, then its status is `cancelled`, its slot is null, the slot's status is `open`, and the candidate is still `selected`.
 10. Given the same case with `release_candidate: true`, when I cancel, then the candidate's status is `candidate` and the feed item behind it is `eligible` again.
-11. Given an item in `publishing`, when I cancel it, then the API returns `409 invalid_transition` with reason `publishing_in_progress`.
+11. Given an item in `publishing` (set up directly in the test, since only Phase 2 sets it), when I cancel it, then the API returns `409 invalid_transition` with reason `publishing_in_progress`.
 12. Given an item with a running job, when I cancel it, then the job's status is `cancelled` and `active_job` is null.
 13. Given the board view, when items exist in `in_check` and `in_review`, then both appear in the "In check" column with their own status tags.
 14. Given `/content/42` for an item in `selected` without `?tab=`, when the page opens, then the Brief tab is active and the step indicator shows Brief in progress.

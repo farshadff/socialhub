@@ -6,7 +6,7 @@
 | Priority | Must |
 | Estimate | BE 1 d · FE 0.5 d |
 | Depends on | E00-S01, E00-S02 |
-| Needed by | E03-S03, E04-S02, E04-S03, E05-S01, E05-S02, E06-S02, E06-S03, E06-S04, E06-S06, E06-S07, E07-S02, E07-S04, E08-S01, E08-S03, E09-S01, E10-S01 |
+| Needed by | E03-S03, E04-S02, E04-S03, E05-S01, E05-S02, E06-S02, E06-S03, E06-S04, E06-S06, E06-S07, E07-S02, E07-S04, E08-S01, E08-S05, E09-S03, E09-S04, E10-S01 |
 
 ## User story
 
@@ -16,7 +16,7 @@ As an operator, I want the panel to show the same limits the system enforces, so
 
 ## Context
 
-Instagram formats come with hard numbers: canvas size, video length, file size, caption length, hashtag count, the parts of the screen hidden by Instagram's own interface. Several later stories need these numbers: the renderer (E06-S02, E06-S03), the caption writer (E06-S06), the format and design checks (E07-S02, E07-S04), the publisher (E08-S03) and the metric collector (E09-S01). This story puts them in one Python module and serves them to the panel. It is a small story with a large blast radius, so it is built early in R1.
+Instagram formats come with hard numbers: canvas size, video length, file size, caption length, hashtag count, the parts of the screen hidden by Instagram's own interface. Several later stories need these numbers: the renderer (E06-S02, E06-S03), the caption writer (E06-S06), the format and design checks (E07-S02, E07-S04), the scheduler and the posting pack (E08-S01, E08-S05) and metric entry (E09-S03, E09-S04). This story puts them in one Python module and serves them to the panel. It is a small story with a large blast radius, so it is built early in R1.
 
 The registry describes formats. It does not hold per-account rules (those are in `InstagramAccount.posting_rules`) and it is not a database table: values change with a code release, which is reviewed and tested.
 
@@ -79,11 +79,9 @@ The registry describes formats. It does not hold per-account rules (those are in
    | `alt_text_max_chars` | int | |
    | `cover_required` | bool | Whether a cover image must be supplied |
    | `safe_area` | dict | `{"top", "right", "bottom", "left"}` in pixels of the target canvas |
-   | `publish_method` | str | `InstagramProvider` method used by E08-S03 |
-   | `capability` | str | Key in `AccountConnection.capabilities` that must be true |
    | `daily_limit_group` | str | `feed` or `story`: which `posting_rules` daily limit counts it |
-   | `metric_checkpoints` | tuple | Checkpoints at which E09-S01 captures metrics, in order |
-   | `evaluation_checkpoints` | tuple | Checkpoints at which E10-S01 evaluates; a subset of `metric_checkpoints` |
+   | `metric_checkpoints` | tuple | Checkpoints at which a metric snapshot can be recorded (E09-S03), in order |
+   | `evaluation_checkpoints` | tuple | Checkpoints at which E09-S04 asks for metric entry and E10-S01 evaluates; a subset of `metric_checkpoints` |
 
 4. The values:
 
@@ -105,13 +103,11 @@ The registry describes formats. It does not hold per-account rules (those are in
    | `alt_text_expected` / `alt_text_max_chars` | true / 100 | false / 100 | false / 100 | false / 100 |
    | `cover_required` | false | false | false | true |
    | `safe_area` top / right / bottom / left | 60 / 60 / 60 / 60 | 250 / 60 / 250 / 60 | 250 / 60 / 250 / 60 | 220 / 120 / 420 / 60 |
-   | `publish_method` | `publish_feed_image` | `publish_story_image` | `publish_story_video` | `publish_reel` |
-   | `capability` | `publish_feed` | `publish_story` | `publish_story` | `publish_reel` |
    | `daily_limit_group` | `feed` | `story` | `story` | `feed` |
    | `metric_checkpoints` | `1h`, `6h`, `24h`, `72h`, `7d` | `1h`, `6h`, `23h` | `1h`, `6h`, `23h` | `1h`, `6h`, `24h`, `72h`, `7d` |
    | `evaluation_checkpoints` | `24h`, `7d` | `23h` | `23h` | `24h`, `7d` |
 
-5. Values that depend on Instagram and must be confirmed during the E00-S04 spike, then kept current: the hashtag limit (the setting exists because Instagram has changed it; check the current limit before launch), reel and story duration limits, maximum file sizes, and the safe-area bands. The duration and size values above are deliberately conservative: a file that meets them is accepted by Instagram, even if Instagram would accept more.
+5. Values that depend on Instagram come from Instagram's published specifications (its Help Center and developer documentation for each format) and are kept current: the hashtag limit (the setting exists because Instagram has changed it; check the current limit before launch), reel and story duration limits, maximum file sizes, and the safe-area bands. During R2 the team confirms them by posting one of each format (feed post, image story, video story, reel) by hand from a posting pack on the test account, and adjusts the registry if the Instagram app rejects, crops or recompresses a file in a way the values did not predict. The duration and size values above are deliberately conservative: a file that meets them is accepted by Instagram, even if Instagram would accept more.
 6. Script-level limits (number of frames, frame durations, text lengths per frame template) are not media limits. E05-S01 adds them to the same module as `SCRIPT_RULES` and `FRAME_TEMPLATES` and to the same endpoint as `script_rules` and `frame_templates`. This story leaves those two keys for E05-S01.
 7. Role definitions live in `apps/content/roles.py` and are added to the endpoint as `roles` by E04-S02.
 
@@ -141,7 +137,6 @@ The registry describes formats. It does not hold per-account rules (those are in
     - an image spec carries video fields, or a video spec lacks them;
     - `caption_allowed` is false and `caption_max_chars` or `max_hashtags` is not 0;
     - `evaluation_checkpoints` is not an ordered subset of `metric_checkpoints`, or a checkpoint is not a `Checkpoint` value;
-    - `publish_method` is not a method of the `InstagramProvider` interface, or `capability` is not a capability key from DATA-MODEL.md;
     - a safe area leaves less than half the canvas width or height usable.
 
 ### Endpoint
@@ -199,8 +194,6 @@ Permission: signed-in user. No query parameters.
       "alt_text_max_chars": 100,
       "cover_required": false,
       "safe_area": {"top": 60, "right": 60, "bottom": 60, "left": 60},
-      "publish_method": "publish_feed_image",
-      "capability": "publish_feed",
       "daily_limit_group": "feed",
       "metric_checkpoints": ["1h", "6h", "24h", "72h", "7d"],
       "evaluation_checkpoints": ["24h", "7d"]
@@ -236,8 +229,6 @@ Permission: signed-in user. No query parameters.
       "alt_text_max_chars": 100,
       "cover_required": false,
       "safe_area": {"top": 250, "right": 60, "bottom": 250, "left": 60},
-      "publish_method": "publish_story_image",
-      "capability": "publish_story",
       "daily_limit_group": "story",
       "metric_checkpoints": ["1h", "6h", "23h"],
       "evaluation_checkpoints": ["23h"]
@@ -273,8 +264,6 @@ Permission: signed-in user. No query parameters.
       "alt_text_max_chars": 100,
       "cover_required": false,
       "safe_area": {"top": 250, "right": 60, "bottom": 250, "left": 60},
-      "publish_method": "publish_story_video",
-      "capability": "publish_story",
       "daily_limit_group": "story",
       "metric_checkpoints": ["1h", "6h", "23h"],
       "evaluation_checkpoints": ["23h"]
@@ -310,8 +299,6 @@ Permission: signed-in user. No query parameters.
       "alt_text_max_chars": 100,
       "cover_required": true,
       "safe_area": {"top": 220, "right": 120, "bottom": 420, "left": 60},
-      "publish_method": "publish_reel",
-      "capability": "publish_reel",
       "daily_limit_group": "feed",
       "metric_checkpoints": ["1h", "6h", "24h", "72h", "7d"],
       "evaluation_checkpoints": ["24h", "7d"]
@@ -345,7 +332,7 @@ None.
 No page of its own. This story provides the data layer that other pages use.
 
 - **`src/services/formats.ts`:** `getFormats()` calling `GET /api/v1/formats/`, with TypeScript types `FormatSpec`, `FormatInfo`, `ProductionModeInfo` and, filled by later stories, `RoleInfo`, `ScriptRule`, `FrameTemplate`.
-- **`src/hooks/useFormats.ts`:** wraps Umi's `useRequest` with `cacheKey: 'formats'` and `staleTime: Infinity`, so the registry is fetched once per browser session and shared by every component. Returns `{data, loading, error, getSpec(format, mediaKind), modesFor(format, mediaKind), formatLabel(format, mediaKind?), modeLabel(mode)}`. `getSpec` returns `undefined` for an unknown combination instead of throwing.
+- **`src/hooks/useFormats.ts`:** wraps Refine's `useList` on resource `formats` with `pagination: { mode: "off" }` and `queryOptions: { staleTime: Infinity }`, so the registry is fetched once per browser session and shared by every component. Returns `{data, loading, error, getSpec(format, mediaKind), modesFor(format, mediaKind), formatLabel(format, mediaKind?), modeLabel(mode)}`. `getSpec` returns `undefined` for an unknown combination instead of throwing.
 - **Loading and error:** components that need limits show their own skeleton while `loading`. On error they fall back to labels only (no counters) and show nothing alarming; the server still enforces every limit.
 - **Labels:** `formatLabel('story', 'video')` returns "Video story"; `formatLabel('story')` returns "Story". Status-free format tags elsewhere (E03-S04 list and board) switch to these labels.
 
@@ -357,7 +344,7 @@ No page of its own. This story provides the data layer that other pages use.
 4. Given a request with `If-None-Match` equal to the current ETag, when I call the endpoint, then I get `304`.
 5. Given `defaults_for("reel")`, then it returns `("video", "motion")`; given `is_allowed("feed_post", "image", "motion")`, then it returns false.
 6. Given a developer changes the story spec so that `evaluation_checkpoints` contains `24h`, when the test suite runs, then the system check fails naming `story/video` and `evaluation_checkpoints`.
-7. Given a developer sets the reel `publish_method` to a name the provider interface does not have, when Django starts, then the system check fails.
+7. Given a developer sets the reel `width` to 1080 and `height` to 1350 while its `layout` stays `9x16`, when Django starts, then the system check fails naming `reel/video` and `layout`.
 8. In the panel, given two components on one page use `useFormats`, then only one request to `/api/v1/formats/` is made in that browser session.
 
 ## Subtasks
@@ -392,3 +379,4 @@ None beyond the tests inside each subtask.
 - New formats (carousel, feed video): one `FORMATS` entry and one `FormatSpec` per media kind, then render, check and publish support in their own epics.
 - Per-account overrides: a `get_spec(format, media_kind, account=None)` signature that merges `account.format_overrides`; callers already use the helper.
 - If limits ever need to change without a release, the dataclass can be loaded from a JSON file or table with the same system checks.
+- Phase 2: `publish_method` (the `InstagramProvider` method E08-S03 calls) and `capability` (the `AccountConnection.capabilities` key that must be true) per spec, with a system check against the provider interface. Instagram's API limits are then checked against these values during the E00-S04 setup spike.

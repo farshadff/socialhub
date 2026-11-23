@@ -1,6 +1,8 @@
 # Social Hub local development
 
-This is the container-first foundation for the internal Instagram MVP. It currently includes a Django/DRF API, an English Ant Design Pro admin preview, PostgreSQL, Redis, a Celery worker, a separate render worker, and one Celery Beat scheduler.
+This is the container-first foundation for the internal Instagram MVP. It currently includes a Django/DRF API, an English operator panel built on Refine with Ant Design, PostgreSQL, Redis, a Celery worker, a separate render worker, and one Celery Beat scheduler.
+
+The build plan is in [docs/](docs/README.md). Phase 1, the current work, covers the AI agents, content creation, scheduling and the operator panel; posting and metrics are done by hand. The Instagram API (account connection, automated publishing, API metrics) is Phase 2 — see [docs/ROADMAP.md](docs/ROADMAP.md).
 
 The local source/model adapters return deterministic synthetic data. External publishing is intentionally unavailable: `SOCIALHUB_PUBLISHING_ENABLED=false`, the only publisher is `disabled`, and startup fails if the publisher is changed or enabled. Do not put provider credentials in this checkout.
 
@@ -25,7 +27,7 @@ docker compose exec backend python manage.py migrate
 
 The initial image build includes Python/JavaScript dependency installation, Chromium, FFmpeg, and Noto fonts for the render-worker image. The scheduler is a single Compose service. Migrations run explicitly after PostgreSQL is healthy; workers do not race migrations during startup.
 
-Open the dashboard at <http://localhost:5173>. The API is at <http://localhost:8000/api/v1/>. Readiness is at <http://localhost:8000/api/v1/health/ready/>; the deterministic provider sample is at <http://localhost:8000/api/v1/demo/>. The Ant Design Pro development server proxies `/api/v1/` requests to Django. Its overview page shows API, database, Redis, fixture provider, and publishing status.
+Open the dashboard at <http://localhost:5173>. The API is at <http://localhost:8000/api/v1/>. Readiness is at <http://localhost:8000/api/v1/health/ready/>; the deterministic provider sample is at <http://localhost:8000/api/v1/demo/>. The Vite development server proxies `/api/v1/` requests to Django. Its overview page shows API, database, Redis, fixture provider, and publishing status.
 
 Create an admin only if you need the Django admin at <http://localhost:8000/admin/>:
 
@@ -47,7 +49,7 @@ docker compose down
 
 | Service | Local role | Host address |
 | --- | --- | --- |
-| `frontend` | Ant Design Pro v6 / Umi Max development server, English UI | `127.0.0.1:5173` |
+| `frontend` | Refine + Ant Design panel on the Vite development server, English UI | `127.0.0.1:5173` |
 | `backend` | Django/DRF API and Django admin | `127.0.0.1:8000` |
 | `postgres` | Durable application database | `127.0.0.1:5432` |
 | `redis` | Celery broker and short-lived coordination | `127.0.0.1:6379` |
@@ -63,7 +65,7 @@ Python dependencies are pinned with hashes in [backend/requirements.lock](backen
 
 The renderer image provides system Chromium, FFmpeg, and Noto fonts. The browser automation library, final Persian font, and production rendering approach remain subject to the US-004 Persian/rendering spike. This image is a local prerequisite layer, not an accepted rendering benchmark.
 
-The development containers use Django's runserver and Umi Max's dev server. This Compose file is for local development; hosted deployment, secure production settings, secrets injection, and release/rollback are separate work.
+The development containers use Django's runserver and Vite's dev server. This Compose file is for local development; hosted deployment, secure production settings, secrets injection, and release/rollback are separate work.
 
 ## Current API skeleton
 
@@ -77,8 +79,8 @@ The development containers use Django's runserver and Umi Max's dev server. This
 
 The current API contract is documented in [docs/openapi.yaml](docs/openapi.yaml). API errors use a Persian safe message, an English machine code, optional field paths, a request ID in both the body and `X-Request-ID`, and a retryability flag. Session-authenticated API views use `403 authentication_required` for an unauthenticated session; permission denials use `403 permission_denied`. New API views require authentication by default, while the local health and demo endpoints are explicitly public.
 
-The Social Hub overview fetches readiness and local demo data through the same-origin `/api/v1/` proxy. The Ant Design Pro template's example pages use its local development mocks.
+The Social Hub overview fetches readiness and local demo data through the same-origin `/api/v1/` proxy, using the panel's Refine data provider (`frontend/src/providers/data-provider.ts`). The panel has no mock data.
 
 ## Versions checked for this scaffold
 
-The initial compatible set is Python 3.14, Django 6.1.3, Django REST framework 3.18.3, Celery 5.6.2, Node 24.20.0, React 19.3.1, Umi Max 4, Ant Design 6, and Ant Design Pro 6.0.3. The Pro frontend was taken from upstream commit `42f2cb1d303380909ea04c73b5e60679d09c321a`.
+The initial compatible set is Python 3.14, Django 6.1.3, Django REST framework 3.18.3, Celery 5.6.2, Node 24.20.0, React 19.3.1, Vite 8, React Router 7, Refine 5 (`@refinedev/core` 5.0.12, `@refinedev/antd` 6.0.3) and Ant Design 5.29. The panel started from Refine's official `examples/base-antd` starter (refinedev/refine commit `2352eb5b6539e2f39ad9aef652279ad1dcf2c467`); see [frontend/README.md](frontend/README.md). `@refinedev/antd` supports Ant Design 5 only, so the panel moves to Ant Design 6 when Refine does.

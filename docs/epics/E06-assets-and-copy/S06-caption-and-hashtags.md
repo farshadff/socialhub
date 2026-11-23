@@ -6,7 +6,7 @@
 | Priority | Must |
 | Estimate | BE 1.5 d · FE 1 d |
 | Depends on | E00-S05, E04-S01, E04-S03, E05-S01, E06-S07 |
-| Needed by | E07-S03, E08-S03 |
+| Needed by | E07-S03, E08-S05 |
 
 ## User story
 
@@ -14,7 +14,7 @@ As an operator, I want a caption and hashtags drafted for each reel and feed pos
 
 ## Context
 
-Step 06 of the workflow says "Draft captions and hashtags." The asset carries the message visually; the caption adds context and the call to action, and the hashtags help discovery. Both are written by Claude from the approved brief and script, in the account's content language and tone, and stored on the draft `ContentVersion` next to the asset. The copy check (E07-S03) later judges exactly this text, and the publisher (E08-S03) sends it.
+Step 06 of the workflow says "Draft captions and hashtags." The asset carries the message visually; the caption adds context and the call to action, and the hashtags help discovery. Both are written by Claude from the approved brief and script, in the account's content language and tone, and stored on the draft `ContentVersion` next to the asset. The copy check (E07-S03) later judges exactly this text, and the operator copies it from the posting pack (E08-S05) into the Instagram app.
 
 Stories have no caption on Instagram. For a story the copy step does nothing.
 
@@ -40,7 +40,7 @@ Stories have no caption on Instagram. For a story the copy step does nothing.
 ### Limits
 
 1. Limits come from the format registry (E04-S01) for the item's format. Defaults assumed here: caption at most 2,200 characters; at most 5 hashtags; alt text at most 100 characters. If the registry has different values, the registry wins.
-2. **What counts.** Instagram receives one text: the caption, a blank line, then the hashtags each prefixed with `#` and separated by spaces. It is built by the single builder `full_caption(version)` (owned by E08-S01), which this story, the format check (E07-S02) and the publisher all use. The 2,200-character limit applies to that combined text. The hashtag limit counts the list plus any `#tags` typed inside the caption, so copy that passes here cannot fail `format.too_many_hashtags`. The API returns the combined text as `caption_preview`, its length as `caption_length` and the counted tags as `hashtag_count`.
+2. **What counts.** Instagram receives one text: the caption, a blank line, then the hashtags each prefixed with `#` and separated by spaces. It is built by the single builder `full_caption(version)` (owned by E08-S01), which this story, the format check (E07-S02) and the posting pack (E08-S05) all use. The 2,200-character limit applies to that combined text. The hashtag limit counts the list plus any `#tags` typed inside the caption, so copy that passes here cannot fail `format.too_many_hashtags`. The API returns the combined text as `caption_preview`, its length as `caption_length` and the counted tags as `hashtag_count`.
 3. **Hashtag form.** Stored without `#`. Letters, digits and underscore only (Unicode letters, so Persian is allowed). Spaces and the zero-width non-joiner are replaced by `_` on save; a leading `#` is stripped; length 2–50 characters; duplicates are removed ignoring case. A hashtag that is only digits is rejected.
 4. **Stories.** `caption`, `hashtags` and `alt_text` must be empty. `PUT …/copy/` with any content returns `400 validation_error`; `POST …/copy/generate/` returns `409 invalid_transition` with `details.reason = "format_has_no_caption"`. No disclosure line is added to stories.
 
@@ -296,5 +296,5 @@ None beyond the tests inside each subtask.
 ## Later
 
 - Caption variants: return two or three and let the operator choose, or let evaluation (E10) compare them.
-- Hashtags in the first comment: a per-account setting and one more provider call in E08-S03.
+- Phase 2: hashtags in the first comment, as a per-account setting and one more provider call in E08-S03. Phase 2's publisher sends the same `full_caption` text.
 - Data-informed hashtags: feed the best-performing hashtags from analytics into the prompt.

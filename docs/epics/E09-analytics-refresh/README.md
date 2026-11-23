@@ -2,23 +2,25 @@
 
 ## Goal
 
-Workflow step 09: "Pull reach, saves, and shares. Track follower change by account." After a post is live, the system records its numbers at fixed ages so that posts can later be compared at the same age (E10). Once a day it records each account's follower count and the change since the previous record. The operator sees the numbers, how fresh they are, and can enter them by hand when Instagram does not provide them.
+Workflow step 09: "Pull reach, saves, and shares. Track follower change by account." Phase 1 has no Instagram API, so the numbers come from the Instagram app and a person types them in. After a post is marked as published, the panel asks for its numbers at the evaluation checkpoints (24 h and 7 d for reels and feed posts, 23 h for stories), so that posts can later be compared at the same age (E10). On the first day of each plan week it asks for the account's follower count. The operator sees what was entered, what is due and what was missed.
 
 ## Scope
 
-**In the MVP**
+**In Phase 1**
 
-- Metric snapshots per publication at fixed checkpoints: reels and feed posts at 1 h, 6 h, 24 h, 72 h and 7 d; stories at 1 h, 6 h and 23 h.
-- A collector that runs every 10 minutes, reads insights through the official Graph API (`GET /{media_id}/insights`), takes turns with publishing on each account's lock, and tolerates provider errors.
-- Clear records of what could not be measured: metrics the provider did not return, checkpoints that were missed.
-- A daily follower snapshot per account with the change since the previous one.
-- Manual refresh, manual metric entry and manual follower entry.
-- Panel: post metrics list, post detail with the metric curve, account followers page, the Performance tab of the item workspace.
+- A checkpoint pointer per publication over the evaluation checkpoints: reels and feed posts `24h` then `7d`; stories `23h`. Each checkpoint is due for entry from its time until the next one's time; the last one stays due for three more days. A checkpoint nobody enters is recorded as missed.
+- Optional checkpoints (`1h`, `6h`, `72h`) and ad hoc readings can be entered inside their window but are never asked for.
+- Manual entry of post metrics and follower counts. Every row has `source = manual`.
+- Reminders: "Metrics to enter" and "Follower count to enter" on the overview attention list (E11-S01), and a status line on every analytics page.
+- Follower change over any period from the counts entered; the weekly change compares the counts dated `week_start` and the next `week_start`.
+- Panel: post metrics list, post detail with the checkpoint table and the metric curve, followers page, the Performance tab of the item workspace.
 
 **Left for later**
 
-- Showing or evaluating the metrics kept in `extra` (profile visits, follows, watch time, story navigation); audience demographics; link clicks.
-- Hourly follower tracking, follower attribution to posts.
+- Automatic collection from Instagram (Phase 2, see below).
+- Reminders by email or chat.
+- Metrics beyond the seven snapshot columns (profile visits, follows, watch time, story navigation); audience demographics; link clicks.
+- Follower attribution to posts.
 - Exports and scheduled email reports.
 - Competitor benchmarks.
 - Any judgement about the numbers: verdicts, goals and baselines belong to E10.
@@ -27,25 +29,32 @@ Workflow step 09: "Pull reach, saves, and shares. Track follower change by accou
 
 | ID | Title | Priority | BE | FE | QA |
 | --- | --- | --- | --- | --- | --- |
-| [E09-S01](S01-post-metric-snapshots.md) | Post metric snapshots at fixed ages | Must | 3 | 0 | |
-| [E09-S02](S02-follower-tracking.md) | Follower tracking per account | Must | 1 | 0 | |
-| [E09-S03](S03-analytics-views.md) | Analytics views, manual refresh and manual entry | Must | 1.5 | 4 | |
-| | **Total** | | **5.5** | **4** | |
+| [E09-S01](S01-post-metric-snapshots.md) | Collect post metrics from Instagram at fixed ages | Phase 2 | (3) | (0) | |
+| [E09-S02](S02-follower-tracking.md) | Collect follower counts from Instagram daily | Phase 2 | (1) | (0) | |
+| [E09-S03](S03-analytics-views.md) | Analytics views and manual entry | Must | 1 | 3.5 | |
+| [E09-S04](S04-entry-checkpoints.md) | Metric entry checkpoints and reminders | Must | 1 | 0.5 | |
+| | **Phase 1 total** | | **2** | **4** | |
+
+Figures in brackets are Phase 2 estimates and are not in the total.
 
 ## Flow
 
-1. When a publication becomes `published`, E08 sets `next_metrics_checkpoint = "1h"` and `next_metrics_at = published_at + 1 hour`.
-2. Every 10 minutes the collector picks the publications whose `next_metrics_at` has passed, groups them by account, and for each one asks the provider for insights once, using the per-format metric map (S01).
-3. The result is stored as a `MetricSnapshot` under the checkpoint that is due, with the real age in minutes and the list of metrics the provider could not return. The pointer moves to the next checkpoint. After the last one it is cleared.
-4. Shortly after midnight in each account's timezone, the follower task stores an `AccountSnapshot` with the change since the previous one (S02).
-5. The operator opens Analytics to see the latest numbers per post, the curve of one post over its checkpoints, and the follower series; presses "Refresh now" for fresh numbers between checkpoints; or types numbers in when the provider cannot deliver them (S03).
-6. E10 reads the snapshots at the evaluation checkpoints (`24h`, `7d`, `23h`) and the follower change for the week.
+1. When the operator marks a publication as published (E08-S05), E09-S04's `start_metrics_pointer` sets `next_metrics_checkpoint` to the first evaluation checkpoint (`24h`, or `23h` for a story) and `next_metrics_at = published_at` + that age.
+2. Once that time has passed, the post is due for entry: it shows "Metrics to enter" in Post metrics, a `metrics_entry_due` entry appears on the overview, and `sync_status` counts it (S04).
+3. The operator opens the post's insights in the Instagram app and enters the numbers (S03). They are stored as a `captured` `MetricSnapshot`, and the pointer moves to the next evaluation checkpoint at once.
+4. Every 10 minutes `analytics.advance_entry_checkpoints` records a checkpoint whose window has closed without numbers as `skipped` with reason `missed`, and moves the pointer on. After the last checkpoint the pointer is cleared (S04).
+5. On the first day of each plan week, the account is "followers due" until a count for that date is entered (S04). The count is stored as an `AccountSnapshot` and the change is computed (S03).
+6. E10 reads the snapshots at the evaluation checkpoints and the follower change for the week.
 
 ```text
-published ─► 1h ─► 6h ─► 24h ─► 72h ─► 7d      (reel, feed_post)
-published ─► 1h ─► 6h ─► 23h                   (story)
+published ─► 24h ─────────────► 7d ─────────────► done      (reel, feed_post)
+             due until 7d opens   due for 3 days
+published ─► 23h ─────────────► done                        (story)
+             due for 3 days
               │
-              └─ each checkpoint: captured | unavailable | skipped
+              └─ each evaluation checkpoint: captured (entered) | skipped (missed)
+
+optional: 1h, 6h, 72h and ad hoc readings, entered by choice, never asked for
 ```
 
 ## Owns
@@ -53,41 +62,46 @@ published ─► 1h ─► 6h ─► 23h                   (story)
 | Kind | Items |
 | --- | --- |
 | Tables | `MetricSnapshot`, `AccountSnapshot` ([DATA-MODEL.md](../../DATA-MODEL.md) section 10) |
-| Endpoints | `POST /analytics/refresh/`, `GET /analytics/posts/`, `GET /analytics/posts/{publication_id}/`, `POST /analytics/posts/{publication_id}/snapshots/`, `GET /analytics/account/`, `POST /analytics/account/snapshots/`, and one addition: `GET /analytics/sync-status/` |
+| Endpoints | `GET /analytics/posts/`, `GET /analytics/posts/{publication_id}/`, `POST /analytics/posts/{publication_id}/snapshots/`, `GET /analytics/account/`, `POST /analytics/account/snapshots/`, `GET /analytics/sync-status/`. Phase 2: `POST /analytics/refresh/` |
 | Panel | `/analytics/posts`, `/analytics/posts/:publicationId`, `/analytics/account`; the Performance tab of `/content/:id` |
-| Background tasks | `analytics.collect_due_metrics` (every 10 minutes), `analytics.collect_account_metrics`, `analytics.dispatch_follower_snapshots` (every 10 minutes), `analytics.snapshot_followers`, `analytics.refresh` |
-| Provider code | `media_insights` and `account_stats` in the `graph_api` adapter; the metric map `apps/instagram/metrics.py` |
-| Services | `analytics.services.checkpoints`, `analytics.services.snapshots`, `analytics.services.followers` (`follower_change(account, from_date, to_date)`), `analytics.services.sync_status(account)` |
+| Background tasks | `analytics.advance_entry_checkpoints` (every 10 minutes) |
+| Services | `analytics.services.checkpoints` (`CHECKPOINTS`, `entry_window`, `start_metrics_pointer`, `advance`), `analytics.services.snapshots`, `analytics.services.followers` (`follower_change(account, from_date, to_date)`), `analytics.services.reminders` (`metrics_entry_due`, `followers_entry_due`), `analytics.services.sync_status(account)` |
+| Settings | `SOCIALHUB_METRICS_ENTRY_GRACE_DAYS` (3) |
 | AI tasks | None |
-| Job kinds | `analytics.refresh` |
+| Job kinds | None in Phase 1 |
 
 ## Depends on / needed by
 
 | Depends on | Why |
 | --- | --- |
-| E00-S04 | Provider interface (`media_insights`, `account_stats`), error types, connection status and the `insights` capability (from `instagram_business_manage_insights`), `account_session` and the per-account lock, fake provider |
-| E00-S06 | `JobRun`, `JobButton`, `JobProgress` |
+| E00-S02 | Panel shell, `StatusTag`, `DateTime`, page states |
+| E00-S03 | Accounts with timezone and `week_start_day` |
+| E00-S06 | Celery Beat for the entry task |
 | E03-S04 | Item workspace shell that hosts the Performance tab |
 | E04-S01 | Format registry |
-| E08-S03, E08-S04 | Published publications with `remote_media_id`, `published_at` and the first metric pointer |
+| E08-S01 | `Publication` with the metric pointer fields |
+| E08-S05 | Publications marked as published with `published_at` and `permalink`; calls `start_metrics_pointer` |
 
 | Needed by | Why |
 | --- | --- |
-| E10-S01 | Snapshots at evaluation checkpoints; same-age baselines |
-| E10-S02 | Weekly totals and follower change |
-| E11-S01 | Sync health on the overview (`sync_status`) |
+| E10-S01 | Snapshots at evaluation checkpoints; same-age baselines; the posts table and Performance tab it extends |
+| E10-S02 | Weekly totals and `follower_change` |
+| E11-S01 | `metrics_entry_due` and `followers_entry_due` attention entries; "Metrics entry" from `sync_status` |
 
 ## Done when
 
-1. A post published on the test account gets a snapshot at each of its checkpoints without anyone pressing a button, and each snapshot shows reach, saves and shares or names them as unavailable.
-2. With the provider failing for two hours, no wrong numbers are stored; a missed early checkpoint is recorded as skipped; the last checkpoint is still captured when the provider returns.
-3. The account page shows one follower figure per day and the change over the selected period, with missing days shown as missing.
-4. With the `manual` provider, the operator can type the metrics for a checkpoint and the follower count for a day, and both appear in the same views.
-5. Every analytics page states when the data was last synced.
+1. A reel marked as published on the test account shows "Metrics to enter" 24 hours later, on the overview and in Post metrics. After the operator types its `24h` numbers it is no longer due, and `7d` is its next checkpoint.
+2. A checkpoint nobody enters is recorded as missed when its window closes, and no numbers are invented. The final checkpoint can still be entered afterwards.
+3. On the first day of each plan week the overview asks for the follower count until it is entered. The followers page shows the counts and the change over the selected period.
+4. Numbers entered for any checkpoint appear in the checkpoint table, the curve and the Performance tab, and numbers at an evaluation checkpoint lead to an evaluation (E10-S01).
+5. Every analytics page states how many posts have metrics to enter and when numbers were last entered.
+
+## Phase 2
+
+Phase 2 collects the numbers automatically through Meta's official Instagram API. E09-S01 adds a collector that reads insights at every checkpoint (`1h` to `7d`) every 10 minutes, and E09-S02 reads each account's follower count once a day. Both write the same `MetricSnapshot` and `AccountSnapshot` rows with `source = provider`, so the views in E09-S03 and the evaluation in E10 do not change. Phase 2 also adds "Refresh metrics" (`POST /analytics/refresh/`) and the collector's fields in `sync_status`. Manual entry and the reminders stay for accounts whose insights are not available.
 
 ## Later
 
-- More checkpoints (for example `14d`) are one entry in the checkpoint table.
-- Additional metrics are columns on `MetricSnapshot` or keys in `extra`; the provider mapping is one entry in `apps/instagram/metrics.py`.
-- A Graph API version that renames a metric adds one entry to the metric map, keyed by version; nothing else changes.
+- More checkpoints (for example `14d`) are one row in `CHECKPOINTS`.
+- Additional metrics are columns on `MetricSnapshot` or keys in `extra`.
 - A time-series store is unnecessary at MVP volume (a few rows per post); the tables can be partitioned by date if volume grows.

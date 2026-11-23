@@ -16,7 +16,7 @@ As a developer building a workflow step, I want one function to call for text an
 
 [AI-INTEGRATION.md](../../AI-INTEGRATION.md) fixes the design: Claude for reasoning, writing, checking, vision and web search; OpenAI for image generation; keys from environment variables; one gateway module that is the only importer of provider SDKs. This story builds that gateway, the fake providers that let the whole pipeline run without keys, the `AIRun` log, and a small admin page that shows provider status.
 
-The scaffold's `apps/core/providers.py` has `FixtureModelProvider` and `FixtureSourceProvider`, and `settings.py` refuses to start unless both are `fixture`. This story removes them.
+The scaffold's `apps/core/providers.py` has `FixtureModelProvider`, `FixtureSourceProvider` and `DisabledPublisher`, and `settings.py` refuses to start unless both providers are `fixture` and the publisher is `disabled`. This story removes all of it. Phase 1 has no publisher, so nothing replaces the publisher part.
 
 ## Scope
 
@@ -117,7 +117,7 @@ The adapter follows AI-INTEGRATION.md section 3. Method names and signatures com
 ### Settings and guard
 
 34. Settings added: all rows of AI-INTEGRATION.md section 1, plus `SOCIALHUB_AI_IMAGE_SIZES` and `SOCIALHUB_AI_MAX_CALLS_PER_JOB`. Local defaults keep both providers on `fake`.
-35. Settings removed: `SOCIALHUB_SOURCE_PROVIDER`, `SOCIALHUB_MODEL_PROVIDER`, the startup guard that requires them, `apps/core/providers.py` and `apps/core/fixtures/demo_source_items.json`.
+35. Settings removed: `SOCIALHUB_SOURCE_PROVIDER`, `SOCIALHUB_MODEL_PROVIDER`, `SOCIALHUB_PUBLISHER_PROVIDER`, `SOCIALHUB_PUBLISHING_ENABLED`, the whole startup guard that checks them, `apps/core/providers.py` (including `DisabledPublisher`) and `apps/core/fixtures/demo_source_items.json`. `.env.example`, `compose.yaml` comments and the root `README.md` are updated to match.
 36. With `DJANGO_DEBUG=false` and a provider set to `fake`, startup fails with `ImproperlyConfigured` (the production startup rule owned by E11-S02 rule 9). Local development and the acceptance stack run with `DJANGO_DEBUG=true`, where `fake` is the default.
 
 ### System status and AI test
@@ -141,7 +141,7 @@ Conventions and error shape: [API.md](../../API.md). All endpoints here are admi
 {
   "app": { "version": "0.1.0", "environment": "production", "debug": false },
   "dependencies": { "database": "ok", "redis": "ok" },
-  "workers": { "default": "ok", "render": "ok", "publish": "unknown" },
+  "workers": { "default": "ok", "render": "ok" },
   "ai": {
     "text": {
       "provider": "anthropic",
@@ -160,26 +160,11 @@ Conventions and error shape: [API.md](../../API.md). All endpoints here are admi
     "max_calls_per_job": 20,
     "timeout_seconds": 180
   },
-  "instagram": {
-    "default_provider": "graph_api",
-    "allowed_providers": ["graph_api", "manual"],
-    "meta_app": {
-      "configured": true,
-      "missing": [],
-      "app_id": "1234567890123456",
-      "redirect_uri": "https://social.example.com/api/v1/instagram/oauth/callback/"
-    },
-    "api_version": "v25.0",
-    "http_proxy": false,
-    "token_refresh_after_days": 7,
-    "media_url_ttl_seconds": 7200,
-    "encryption_key_configured": true
-  },
   "storage": { "backend": "s3", "bucket": "socialhub-media", "public_base_url": null }
 }
 ```
 
-The `storage` block is filled by E00-S06 and the `instagram` block by E00-S04; until those land the keys are present with `null` values. In the `instagram` block, `meta_app.configured` is true when `SOCIALHUB_META_APP_ID`, `SOCIALHUB_META_APP_SECRET`, `SOCIALHUB_META_REDIRECT_URI` and `SOCIALHUB_IG_API_VERSION` are set (the `graph_api` provider needs all four), and `missing` names the ones that are not; `api_version` is the pinned `SOCIALHUB_IG_API_VERSION` (null when unset); `http_proxy` says only whether `SOCIALHUB_IG_HTTP_PROXY` is set. The app secret, the proxy URL and the encryption key are never returned. The app ID is not secret: it appears in every authorize URL.
+The `storage` block is filled by E00-S06; until it lands the key is present with a `null` value.
 
 ### `POST /api/v1/system/ai-test/`
 
@@ -344,20 +329,19 @@ Failure handling is rule 38: the outcome is reported, nothing retries beyond rul
 
 ### `/settings/system` — System (admin only)
 
-`PageContainer` title "System", description "Integration status and AI usage." Two tabs: **Status** and **AI calls**.
+`PageFrame` title "System", description "Integration status and AI usage." Two tabs: **Status** and **AI calls**.
 
-**Status tab** — `ProCard`s with `ProDescriptions`:
+**Status tab** — `Card`s with `Descriptions`:
 
 | Card | Rows |
 | --- | --- |
-| Application | Version, Environment, Database, Redis, Workers (Default, Render, Publish) each as a tag: "OK" (success), "Unavailable" (error), "Unknown" (default) |
+| Application | Version, Environment, Database, Redis, Workers (Default, Render) each as a tag: "OK" (success), "Unavailable" (error), "Unknown" (default) |
 | AI providers | Two rows, Text and Images: provider name ("Claude", "OpenAI", "Fake (local testing)"), model ID, and a tag "Ready" (success) or "Missing {setting names}" (error). A warning `Alert` lists `models_without_price` when not empty: "No price is set for {models}; their cost is recorded as 0." Action: "Run AI test" (`JobButton`) with the helper text "Makes one small call to each provider. Real providers charge for it." |
-| Instagram | Default connection type, Allowed types, Meta app (tag "Ready" or "Missing {setting names}"), App ID, Redirect URI, Graph API version (or "Not set"), Egress proxy (Yes/No), Token refresh (every {n} days), Encryption key ("Configured" / "Missing") |
 | Storage | Backend ("Local disk" / "S3-compatible"), Bucket |
 
 After the test job ends, a result list appears under the AI providers card: for each provider, a success line "Claude replied in 1.8 s" or an error line with the English text for the `error_code` and the `error_detail`. The page reloads the status afterwards.
 
-**AI calls tab** — `ProTable` on `GET /ai/runs/`:
+**AI calls tab** — `Table` (`useTable`) on `GET /ai/runs/`:
 
 - Columns: Time (`DateTime`), Task, Account (`@handle` or "—"), Provider, Model, Tokens in / out, Cost (USD, 4 decimals), Duration (seconds, 1 decimal), Status (tag: OK success, Error error, Refused warning).
 - Search form: Task (select of registered tasks, from the distinct values in the result set), Account, Status, date range. Default range: last 7 days.
@@ -381,7 +365,7 @@ States: skeletons while loading; `PageError` on failure; empty table text "No AI
 11. Given an `AIRun` older than 30 days, when the prune task runs, then its `payload` is null and its other fields are unchanged.
 12. Given a search of the backend for `import anthropic` or `import openai`, when run, then matches exist only under `apps/ai/providers/`.
 13. Given an operator, when they call `GET /system/status/` or `GET /ai/runs/`, then the response is `403 permission_denied`.
-14. Given the backend starts without the old `SOCIALHUB_MODEL_PROVIDER` and `SOCIALHUB_SOURCE_PROVIDER` variables, then it boots normally.
+14. Given the backend starts without the old `SOCIALHUB_MODEL_PROVIDER`, `SOCIALHUB_SOURCE_PROVIDER`, `SOCIALHUB_PUBLISHER_PROVIDER` and `SOCIALHUB_PUBLISHING_ENABLED` variables, then it boots normally; the old guard is gone.
 15. Given a registered text task whose fixture does not match its schema, when the test suite runs, then the registry test fails naming the task.
 
 ## Subtasks
@@ -390,18 +374,18 @@ States: skeletons while loading; `PageError` on failure; empty table text "No AI
 
 | ID | Task | Detail | Est. |
 | --- | --- | --- | --- |
-| E00-S05-BE1 | App, model, settings and task registry | Create `apps/ai`; `AIRun` model, migration and indexes; settings from rule 34 and removal of the old guard, `apps/core/providers.py` and the demo fixture (rule 35); `tasks.py` with `TaskSpec`; prompt loader with `StrictUndefined`; system check for registry consistency (rules 5–11); `system.ping` task with fixture. | 0.5 |
+| E00-S05-BE1 | App, model, settings and task registry | Create `apps/ai`; `AIRun` model, migration and indexes; settings from rule 34 and removal of the old guard, its variables, `apps/core/providers.py` and the demo fixture, with `.env.example` and README updated (rule 35); `tasks.py` with `TaskSpec`; prompt loader with `StrictUndefined`; system check for registry consistency (rules 5–11); `system.ping` task with fixture. | 0.5 |
 | E00-S05-BE2 | Gateway core | `gateway.py`: `run_text`, `run_image`, result and error types, model selection, brand block rendering, retry loop, timeout, call guard, `AIRun` writing with payload truncation and cost calculation from `SOCIALHUB_AI_PRICES` (rules 1–4, 18, 23–29). Unit tests with a scripted provider double. | 0.75 |
 | E00-S05-BE3 | Anthropic adapter | `providers/anthropic_provider.py` following the pinned SDK's documentation: structured output, effort, no sampling parameters, refusal check with server-side fallback, web search tool and citation extraction, `pause_turn` continuation, image blocks with downscaling, prompt caching of the stable prefix, streaming with the final-message helper, typed error mapping (rules 12–18). Tests against recorded response objects; one opt-in live test skipped without a key. | 1.0 |
 | E00-S05-BE4 | OpenAI image adapter and fake providers | `providers/openai_provider.py` (rules 19–22); `providers/fake.py` for text and image with fixtures, variants, Redis-backed and in-process test overrides (rules 30–33); import-boundary test (rule 2). | 0.5 |
-| E00-S05-BE5 | System endpoints, test job and pruning | `GET /system/status/` (with `null` placeholders for the `storage` and `instagram` blocks), `POST /system/ai-test/` and its task, `GET /ai/runs/` with filters and `totals`, `GET /ai/runs/{id}/`, `ai.prune_payloads` and its Beat entry, `openapi.yaml`. API tests including the permission checks. | 0.25 |
+| E00-S05-BE5 | System endpoints, test job and pruning | `GET /system/status/` (with a `null` placeholder for the `storage` block), `POST /system/ai-test/` and its task, `GET /ai/runs/` with filters and `totals`, `GET /ai/runs/{id}/`, `ai.prune_payloads` and its Beat entry, `openapi.yaml`. API tests including the permission checks. | 0.25 |
 
 ### Frontend
 
 | ID | Task | Detail | Est. |
 | --- | --- | --- | --- |
-| E00-S05-FE1 | System status tab | `src/services/socialhub/system.ts`; `/settings/system` Status tab with the four cards, "Run AI test" with `JobButton`, result list and status reload. | 0.25 |
-| E00-S05-FE2 | AI calls tab | `ProTable` with filters, totals line and the detail drawer. | 0.25 |
+| E00-S05-FE1 | System status tab | `src/services/socialhub/system.ts`; `/settings/system` Status tab with the three cards, "Run AI test" with `JobButton`, result list and status reload. | 0.25 |
+| E00-S05-FE2 | AI calls tab | `Table` (`useTable`) with filters, totals line and the detail drawer. | 0.25 |
 
 ### Test
 
@@ -423,3 +407,4 @@ None beyond the tests inside each subtask.
 - Batch processing for non-urgent tasks (weekly report, research synthesis) at lower cost: a second adapter method behind the same `run_text` signature with a `deferred=True` flag.
 - Another text or image provider: one new file under `providers/` and a registry entry.
 - Prompt evaluation sets per task, run when `VERSION` changes.
+- Phase 2: an `instagram` block in `GET /system/status/` and an Instagram card on the Status tab (Meta app settings, Graph API version, token refresh, encryption key), and a Publish row under Workers (E00-S04, E08-S03).

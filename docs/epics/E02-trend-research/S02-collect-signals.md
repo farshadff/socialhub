@@ -438,7 +438,7 @@ The `fake` provider returns fixtures for both tasks keyed by query, including on
 | Element | Behaviour |
 | --- | --- |
 | Button "Run research" | Sends `POST /research/runs/` with the selected plan and default options |
-| Dropdown "Run with options…" | Opens a `ModalForm` "Run research": "Look back" (`InputNumber`, 1–30 days, default 7); "Sources" (multi-select of active, available sources, default all); "Collect new signals" (checkbox, default on); "Group signals into topics" (checkbox, default on). Button "Run" |
+| Dropdown "Run with options…" | Opens a `Modal` form (`useModalForm`) "Run research": "Look back" (`InputNumber`, 1–30 days, default 7); "Sources" (multi-select of active, available sources, default all); "Collect new signals" (checkbox, default on); "Group signals into topics" (checkbox, default on). Button "Run" |
 | While the job runs | `JobProgress` under the header shows the percentage and the job message ("Collecting Coffee trends (2 of 5)"). The button is disabled with tooltip "Research is running." |
 | On success | `message.success("Research finished: {signals} new signals, {topics} topics")`; all tabs reload |
 | On failure | `notification.error` with text by `error_code`: `all_sources_failed` → "No source could be read. Check the Sources tab."; `timeout` → "Research took too long and was stopped. Signals found so far were kept."; otherwise the generic provider message |
@@ -488,7 +488,7 @@ On page load the panel calls `GET /jobs/?account=&kind=research.run&status=queue
 
 | ID | Task | Detail | Est. |
 | --- | --- | --- | --- |
-| E02-S02-FE1 | Run research control | Plan selector and `JobButton` in the `/research` header, options `ModalForm`, `JobProgress`, resume on load, success and failure messages, `409` adoption, reload of tabs through a shared refresh key. Service calls in `src/services/socialhub/research.ts`. Component test for the `409` and `400 no_active_sources` paths. | 0.5 d |
+| E02-S02-FE1 | Run research control | Plan selector and `JobButton` in the `/research` header, options `Modal` form (`useModalForm`), `JobProgress`, resume on load, success and failure messages, `409` adoption, reload of tabs through a shared refresh key. Service calls in `src/services/socialhub/research.ts`. Component test for the `409` and `400 no_active_sources` paths. | 0.5 d |
 
 ### Test
 

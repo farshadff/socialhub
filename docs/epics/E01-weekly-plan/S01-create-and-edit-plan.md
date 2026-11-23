@@ -242,11 +242,11 @@ None.
 
 ### Plan list — `/plans`
 
-- `PageContainer` titled "Weekly plan", primary action "New plan".
-- `ProTable` with server paging. Columns: Week (for example "28 Nov – 4 Dec 2026"), Title, Status (`StatusTag`), Slots (for example "0 / 9 filled", from `slot_summary`), Updated (`DateTime`), actions Open, Duplicate (E01-S03), Delete (drafts only, `Popconfirm`: "Delete this draft plan and its slots?").
+- `PageFrame` titled "Weekly plan", primary action "New plan".
+- `Table` (`useTable`) with server paging. Columns: Week (for example "28 Nov – 4 Dec 2026"), Title, Status (`StatusTag`), Slots (for example "0 / 9 filled", from `slot_summary`), Updated (`DateTime`), actions Open, Duplicate (E01-S03), Delete (drafts only, `Popconfirm`: "Delete this draft plan and its slots?").
 - Filter: status. Default order: newest week first.
 - Empty state: "No plans yet. A plan sets the audience, goals and slots for one week." with the button "New plan".
-- "New plan" opens a `ModalForm`:
+- "New plan" opens a `Modal` form (`useModalForm`):
   - Week: a week picker that offers only valid week starts for the account, from the current week to eight weeks ahead. Weeks that already have a plan are disabled with the hint "Plan exists".
   - Title: optional.
   - Generate slots from template: checkbox, on by default, disabled with the hint "No slot template yet" when the account has none.
@@ -261,7 +261,7 @@ Two-column layout at 1280 px and above: form on the left (two thirds), readiness
 | Card | Content |
 | --- | --- |
 | Findings from last week | Shown only when `carried_findings` is not empty. Each finding is a list item with a type tag (Worked, Did not work, Insight), title, detail, recommendation, and two buttons: "Apply" and "Ignore". Applied and ignored findings collapse to one line with an "Undo" link. |
-| Objective and audience | Objective (`TextArea`, 4 rows, counter 1,000). Audience summary (`TextArea`, 4 rows, counter 2,000, `dir="auto"`). Segments (`ProFormList`, up to 5: name and description). |
+| Objective and audience | Objective (`TextArea`, 4 rows, counter 1,000). Audience summary (`TextArea`, 4 rows, counter 2,000, `dir="auto"`). Segments (`Form.List`, up to 5: name and description). |
 | Success metrics | Checkbox group of the eight metrics with one-line explanations; between one and four may be ticked. |
 | Goals | Editable table: Metric (select), Scope (Week total / Per post), Format (All, Reel, Story, Feed post), Target (number), remove button. "Add goal" adds a row. Under the table, one hint per success metric without a goal: "No goal for saves yet". Invalid combinations are prevented in the selects (choosing Follower growth fixes scope to Week total and format to All). |
 | Notes | `TextArea`, 4 rows. |

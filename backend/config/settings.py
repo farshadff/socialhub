@@ -26,6 +26,10 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "apps.core",
+    "apps.accounts",
+    "apps.planning",
+    "apps.ai",
+    "apps.research",
 ]
 
 MIDDLEWARE = [
@@ -121,6 +125,8 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "apps.core.pagination.BoundedPageNumberPagination",
     "PAGE_SIZE": 50,
     "EXCEPTION_HANDLER": "apps.core.errors.api_exception_handler",
+    # `format` is a filter on several lists (slots, content items); not DRF's renderer override.
+    "URL_FORMAT_OVERRIDE": None,
 }
 
 CSRF_FAILURE_VIEW = "apps.core.errors.csrf_failure"
@@ -136,3 +142,63 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "local"}},
     "root": {"handlers": ["console"], "level": os.environ.get("LOG_LEVEL", "INFO")},
 }
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    return os.environ.get(name, str(default)).strip().lower() == "true"
+
+
+def _env_json(name: str, default):
+    import json
+
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ImproperlyConfigured(f"{name} must be valid JSON.") from exc
+
+
+SOCIALHUB_TESTING_HOOKS = _env_bool("SOCIALHUB_TESTING_HOOKS")
+
+# --- AI gateway (E00-S05, AI-INTEGRATION.md section 1) -------------------------------------
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+SOCIALHUB_AI_TEXT_PROVIDER = os.environ.get("SOCIALHUB_AI_TEXT_PROVIDER", "fake")
+SOCIALHUB_AI_TEXT_MODEL = os.environ.get("SOCIALHUB_AI_TEXT_MODEL", "claude-opus-5-5")
+SOCIALHUB_AI_TEXT_MODEL_OVERRIDES = _env_json("SOCIALHUB_AI_TEXT_MODEL_OVERRIDES", {})
+SOCIALHUB_AI_PRICES = _env_json(
+    "SOCIALHUB_AI_PRICES",
+    {
+        "claude-opus-5-5": {"input": 4.00, "output": 20.00, "cache_read": 0.20},
+        "claude-haiku-5-5": {"input": 0.10, "output": 0.50},
+    },
+)
+SOCIALHUB_AI_TIMEOUT_SECONDS = int(os.environ.get("SOCIALHUB_AI_TIMEOUT_SECONDS", "180"))
+SOCIALHUB_AI_MAX_CALLS_PER_JOB = int(os.environ.get("SOCIALHUB_AI_MAX_CALLS_PER_JOB", "20"))
+
+if SOCIALHUB_AI_TEXT_PROVIDER not in ("fake", "anthropic"):
+    raise ImproperlyConfigured("SOCIALHUB_AI_TEXT_PROVIDER must be 'fake' or 'anthropic'.")
+if not DEBUG and SOCIALHUB_AI_TEXT_PROVIDER == "fake":
+    raise ImproperlyConfigured(
+        "The fake AI provider is for local development only; set SOCIALHUB_AI_TEXT_PROVIDER."
+    )
+
+# --- Jobs (E00-S06) ------------------------------------------------------------------------
+SOCIALHUB_JOB_TIMEOUT_OVERRIDES = _env_json("SOCIALHUB_JOB_TIMEOUT_OVERRIDES", {})
+CELERY_TASK_DEFAULT_QUEUE = "default"
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 7200}
+CELERY_TASK_IGNORE_RESULT = True
+
+# --- Research and outbound HTTP (E02) ------------------------------------------------------
+SOCIALHUB_HTTP_USER_AGENT = os.environ.get("SOCIALHUB_HTTP_USER_AGENT", "SocialHubBot/1.0")
+SOCIALHUB_RESEARCH_BLOCKED_DOMAINS = os.environ.get("SOCIALHUB_RESEARCH_BLOCKED_DOMAINS", "")
+SOCIALHUB_FETCH_ALLOW_HOSTS = os.environ.get("SOCIALHUB_FETCH_ALLOW_HOSTS", "")
+SOCIALHUB_RESEARCH_MAX_TOPICS = int(os.environ.get("SOCIALHUB_RESEARCH_MAX_TOPICS", "8"))
+SOCIALHUB_RESEARCH_EVIDENCE_WEIGHTS = _env_json(
+    "SOCIALHUB_RESEARCH_EVIDENCE_WEIGHTS",
+    {"signal_count": 0.35, "source_diversity": 0.25, "recency": 0.25, "engagement": 0.15},
+)

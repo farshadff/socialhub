@@ -2,6 +2,8 @@
 
 The MVP is one Django application with background workers. It keeps the scaffold that already exists in this repository and adds one Django app per part of the workflow. Nothing here needs a second service, a message bus or a new database.
 
+This page describes **Phase 1**, the plan to build now ([ROADMAP.md](ROADMAP.md) section 0). Phase 1 makes no calls to Instagram: the operator posts by hand from a posting pack and types metrics in. Parts marked **(Phase 2)** belong to the Instagram API phase. They are kept so the design stays whole, but they are not built in Phase 1 and Phase 1 code does not depend on them.
+
 ## 1. Stack
 
 | Area | Choice | Notes |
@@ -10,11 +12,11 @@ The MVP is one Django application with background workers. It keeps the scaffold
 | Database | PostgreSQL 17 | The only source of truth. JSON columns hold AI-produced documents. |
 | Background work | Celery with Redis as broker, one Celery Beat scheduler | Already in `compose.yaml`: `worker`, `render-worker`, `scheduler`. |
 | Rendering | Headless Chromium (Playwright for Python) and FFmpeg in the `render-worker` image | HTML templates to PNG; PNG frames and clips to MP4. `ffmpeg`/`ffprobe` is also in the backend image for upload probing (E06-S01) and the format check (E07-S02). |
-| Panel | React 19, TypeScript, Umi Max 4, Ant Design 6, Pro Components | Already in `frontend/`. English, left-to-right. |
+| Panel | React 19, TypeScript, Vite, [Refine](https://refine.dev) 5 (`@refinedev/core`, `@refinedev/antd`, `@refinedev/react-router`), Ant Design 5, React Router 7 | Already in `frontend/`. English, left-to-right. Refine supplies the data layer (one data provider for the Django API, TanStack Query cache), auth and access-control providers, routing and layout; Ant Design supplies the components. `@refinedev/antd` supports Ant Design 5 only, so the panel moves to Ant Design 6 when Refine does. |
 | AI | `anthropic` and `openai` Python SDKs behind one gateway module | See [AI-INTEGRATION.md](AI-INTEGRATION.md). |
-| Instagram | Meta's official Instagram API with Instagram Login (Graph API), called with `httpx` behind a provider interface | No third-party Instagram SDK. See [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGRATION.md). |
-| Media storage | Django storage API; local volume in development, S3-compatible bucket when hosted | Chosen by one setting. The hosted bucket must be reachable from the internet (section 6). |
-| Secrets | Environment variables; Instagram access tokens encrypted in the database with a key from the environment | No secrets in the repository. |
+| Instagram | Phase 1: none. No Instagram API calls, no Meta app, no tokens. (Phase 2: Meta's official Instagram API with Instagram Login (Graph API), called with `httpx` behind a provider interface) | Phase 2: no third-party Instagram SDK. See [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGRATION.md). |
+| Media storage | Django storage API; local volume in development, S3-compatible bucket when hosted | Chosen by one setting. In Phase 1 the hosted bucket is private and the panel downloads through signed URLs. (Phase 2: the bucket must be reachable from the internet, section 6.) |
+| Secrets | Environment variables | No secrets in the repository. (Phase 2: Instagram access tokens encrypted in the database with a key from the environment.) |
 
 ## 2. Backend apps
 
@@ -26,10 +28,10 @@ backend/apps/
                 idempotency.idempotent decorator, permissions (IsAdmin, IsAdminOrReadOnly), clock, storage
                 helpers, the bundled font registry (core/fonts/), overview and attention services, and
                 http.safe_fetch (outbound HTTP with timeout, size cap, blocked private and listed domains)
-  accounts/     InstagramAccount, BrandProfile, AccountConnection, auth endpoints
+  accounts/     InstagramAccount, BrandProfile, auth endpoints; AccountConnection (Phase 2)
   ai/           AI gateway: provider clients, prompt registry, AIRun log
-  instagram/    provider interface and adapters (graph_api, manual, fake), OAuth connect and token
-                refresh, account session and lock helper, signed media URLs
+  instagram/    (Phase 2; not created in Phase 1) provider interface and adapters (graph_api, manual,
+                fake), OAuth connect and token refresh, account session and lock helper, signed media URLs
   planning/     WeeklyPlan, PlanGoal, SlotTemplate, PlanSlot, signals.py      step 01
   research/     ResearchSource, ResearchRun, TrendSignal, TrendTopic          step 02
   selection/    FeedSource, FeedItem, feed readers/, Candidate, RepurposeTask step 03
@@ -39,10 +41,11 @@ backend/apps/
   production/   render templates, renderers, FFmpeg assembly, normalisation,
                 rights resolver, production tasks                             step 06
   quality/      QCRun, QCResult, ReviewTask, the five checkers, catalogue.py  step 07
-  publishing/   Publication, PublishAttempt, scheduler, publish worker,
-                verification and recovery                                     step 08
-  analytics/    MetricSnapshot, AccountSnapshot, PerformanceEvaluation,
-                WeeklyReport                                                  steps 09–10
+  publishing/   Publication, scheduler, captions, posting pack and
+                mark as published (E08-S05); PublishAttempt, publish worker,
+                verification and recovery (Phase 2)                           step 08
+  analytics/    MetricSnapshot, AccountSnapshot, entry checkpoints and
+                reminders (E09-S04), PerformanceEvaluation, WeeklyReport      steps 09–10
 ```
 
 Inside an app:
@@ -61,17 +64,21 @@ tests/
 
 `ContentItem` is the record that moves through steps 03 to 08. Its `status` field is the single place that says where an item is.
 
-Main path:
+Main path in Phase 1:
 
 ```text
-selected ─► briefed ─► scripted ─► in_production ─► in_check ─┬─► approved ─► scheduled ─► publishing ─► published
-   03          04         05            06             07     │                  08            08            08
+selected ─► briefed ─► scripted ─► in_production ─► in_check ─┬─► approved ─► scheduled ─► published
+   03          04         05            06             07     │                  08            08
                                          ▲                    ├─► needs_revision ─┘ (back to production, then recheck)
                                          └────────────────────┘
                                                               └─► in_review (human) ─► approved | needs_revision | cancelled
 ```
 
+In Phase 1 an item stays `scheduled` until the operator marks it published after posting it by hand (E08-S05). (Phase 2: a worker moves it `scheduled ─► publishing ─► published`.)
+
 Every allowed move. The authoritative table is `ALLOWED_TRANSITIONS` in `content/services/pipeline.py` (E03-S04 rule 3).
+
+Phase 1 transitions:
 
 ```text
 selected       ─► briefed                     brief approved (E04-S03)
@@ -88,18 +95,23 @@ in_review      ─► approved | needs_revision | cancelled   reviewer decision 
 in_review      ─► in_check                    manual recheck; back to in_review unless it passes (E07-S01)
 approved       ─► scheduled                   publication created (E08-S01)
 approved       ─► in_review                   no publish time is left: review task no_slot (E08-S01)
+scheduled      ─► published                   marked published by hand (E08-S05)
+any state except published, publishing, cancelled ─► cancelled
+```
+
+Reserved Phase 2 transitions. They stay in `ALLOWED_TRANSITIONS` so adding the worker does not change the state machine, but no Phase 1 code takes them, and `publishing` and `failed` are never written in Phase 1:
+
+```text
 scheduled      ─► publishing                  the worker claims it (E08-S03)
 scheduled      ─► in_review                   the lateness gate finds no time: no_slot (E08-S03)
-scheduled      ─► published                   marked published by hand (E08-S04)
 scheduled      ─► failed                      send-time defensive check finds the version changed (`version_changed`);
                                               opens a publish_failed review task (E08-S03 gate 5)
 publishing     ─► published                   sent, or found live by verification (E08-S03, E08-S04)
 publishing     ─► scheduled                   claim released, connection or rate-limit interruption, waiting to retry (E08-S03, E08-S04)
 publishing     ─► failed                      retries exhausted or a fatal error; opens a review task (E08-S04)
 failed         ─► scheduled                   retry (E08-S04)
-failed         ─► published                   marked published by hand (E08-S04)
+failed         ─► published                   marked published by hand (E08-S04, E08-S05)
 failed         ─► needs_revision              reviewer requests changes on a publish_failed task (E07-S06 through the E08-S04 hook)
-any state except published, publishing, cancelled ─► cancelled
 ```
 
 There is no move out of `scheduled` back into production: after approval there are no edits in the MVP.
@@ -111,13 +123,13 @@ There is no move out of `scheduled` back into production: after approval there a
 | `scripted` | Script approved (by a person, or automatically if `autopilot.script`) | Production starts (automatic), or the script is superseded |
 | `in_production` | Production job starts, a revision restarts it, a newly approved script restarts it, or the operator uploads a finished file from `briefed` | The operator or the pipeline submits a version for checking |
 | `in_check` | A quality-check run starts | The run finishes |
-| `needs_revision` | Outcome is Revise, a reviewer requests changes, or a reviewer requests changes after a failed publication | The revise job starts (→ `in_production`), or a reviewer chose manual rework (→ `in_production` at once, with the instructions as hold reason) |
+| `needs_revision` | Outcome is Revise or a reviewer requests changes. (Phase 2: also a reviewer requesting changes after a failed publication) | The revise job starts (→ `in_production`), or a reviewer chose manual rework (→ `in_production` at once, with the instructions as hold reason) |
 | `in_review` | Outcome is Escalate, the revise limit is reached, or no publish time is left (`no_slot`) | A reviewer decides, or a manual recheck starts (→ `in_check`) |
 | `approved` | Outcome is Pass, or a reviewer approves | The E08-S01 handler creates its publication right after approval commits (→ `scheduled`), or no time is found (→ `in_review`) |
-| `scheduled` | A publication exists with a time | The worker claims it (→ `publishing`), it is marked published by hand, the lateness gate finds no time (→ `in_review`), the send-time check finds the version changed (→ `failed`, review task `publish_failed`), or it is cancelled |
-| `publishing` | The worker is sending or verifying | Success or live verification finds the post (→ `published`); the claim is released or a retry is waiting (→ `scheduled`); retries exhausted or fatal (→ `failed`). The item stays `publishing` while the publication is `verifying` |
-| `published` | The post is confirmed live | Terminal |
-| `failed` | Retries are exhausted, the error is fatal, or the send-time version check fails | Retry (→ `scheduled`), mark as published (→ `published`; a back-dated post follows E08-S04 rule 34 for metric checkpoints), reviewer requests changes (→ `needs_revision`), cancel |
+| `scheduled` | A publication exists with a time | It is marked published by hand after the operator posts it (→ `published`, E08-S05), or it is cancelled. Rescheduling keeps it `scheduled`; passing its time does not move it. (Phase 2: the worker claims it (→ `publishing`), the lateness gate finds no time (→ `in_review`), or the send-time check finds the version changed (→ `failed`, review task `publish_failed`)) |
+| `publishing` | (Phase 2) The worker is sending or verifying | Success or live verification finds the post (→ `published`); the claim is released or a retry is waiting (→ `scheduled`); retries exhausted or fatal (→ `failed`). The item stays `publishing` while the publication is `verifying` |
+| `published` | Phase 1: the operator marked it published with the post link. (Phase 2: also the post is confirmed live by the worker) | Terminal |
+| `failed` | (Phase 2) Retries are exhausted, the error is fatal, or the send-time version check fails | Retry (→ `scheduled`), mark as published (→ `published`; a back-dated post follows E08-S04 rule 34 for metric checkpoints), reviewer requests changes (→ `needs_revision`), cancel |
 | `cancelled` | An operator cancels | Terminal |
 
 Rules that keep this safe:
@@ -132,19 +144,21 @@ Rules that keep this safe:
 
 | Queue | Worker | What runs there |
 | --- | --- | --- |
-| `default` | `worker` | AI calls, research, ranking, checks, analytics collection |
+| `default` | `worker` | AI calls, research, ranking, checks, metric entry checkpoints, evaluation |
 | `render` | `render-worker` | Chromium rendering and FFmpeg assembly, concurrency 1 per worker |
-| `publish` | `worker` locally; `publish-worker` in production | Publishing and verification |
+| `publish` (Phase 2) | `worker` locally; `publish-worker` in production | Publishing and verification |
 
-Locally, one `worker` service consumes `default,publish`. In production (E11-S02) a separate `publish-worker` runs `--queues=publish --concurrency=2` and the `worker` consumes `default` only, so long AI jobs never delay the per-minute dispatcher. Celery's default queue is `default`; tasks use late acknowledgement, prefetch 1 and a 7,200-second broker visibility timeout.
+Phase 1 has two queues, `default` and `render`, and no `publish` queue or `publish-worker` service; the `worker` service consumes `default`. Celery's default queue is `default`; tasks use late acknowledgement, prefetch 1 and a 7,200-second broker visibility timeout.
+
+(Phase 2: locally, one `worker` service consumes `default,publish`. In production a separate `publish-worker` runs `--queues=publish --concurrency=2` and the `worker` consumes `default` only, so long AI jobs never delay the per-minute dispatcher.)
 
 Celery task names are dotted `<app>.<verb>`, matching the job kind where there is one.
 
 | Queue | Tasks |
 | --- | --- |
 | `render` | `production.render_frames`, `production.export_final_image` (E06-S02); `production.assemble_motion` (E06-S03); `production.assemble_footage` (E06-S04); `production.normalise_media` (E06-S03) |
-| `default` | `production.generate_frame_image` (E06-S05), `production.generate_copy` (E06-S06); `quality.run_checks` (E07-S01); `quality.revise_plan`, `quality.revise_script`, `quality.revise_copy`, `quality.revise_finalise` (E07-S05); `analytics.collect_due_metrics`, `analytics.dispatch_follower_snapshots` (E09); `analytics.evaluate_due`, `analytics.run_evaluations` (E10-S01); `analytics.generate_weekly_report` (E10-S02); `selection.suggest_repurpose`, `selection.expire_repurpose_tasks` (E10-S04); `core.sweep_stale_jobs` (E00-S06); `core.tasks.beat_heartbeat` (E11-S02) |
-| `publish` | `publishing.dispatch_due`, `publishing.send` (E08-S03); `publishing.verify` (E08-S04) |
+| `default` | `production.generate_frame_image` (E06-S05), `production.generate_copy` (E06-S06); `quality.run_checks` (E07-S01); `quality.revise_plan`, `quality.revise_script`, `quality.revise_copy`, `quality.revise_finalise` (E07-S05); `analytics.advance_entry_checkpoints` (E09-S04); `analytics.evaluate_due`, `analytics.run_evaluations` (E10-S01); `analytics.generate_weekly_report` (E10-S02); `selection.suggest_repurpose`, `selection.expire_repurpose_tasks` (E10-S04); `core.sweep_stale_jobs` (E00-S06); `core.tasks.beat_heartbeat` (E11-S02). (Phase 2: `analytics.collect_due_metrics`, `analytics.dispatch_follower_snapshots` (E09-S01, E09-S02)) |
+| `publish` (Phase 2) | `publishing.dispatch_due`, `publishing.send` (E08-S03); `publishing.verify` (E08-S04) |
 
 ### Job timeouts
 
@@ -156,7 +170,7 @@ One sweeper, `core.sweep_stale_jobs` (E00-S06), fails jobs with `stale_job`. A r
 | `production.render` | 30 min |
 | `qc.run` | 15 min |
 | `qc.revise` | 60 min |
-| `publish.send`, `publish.verify` | 20 min |
+| `publish.send`, `publish.verify` (Phase 2) | 20 min |
 | Everything else | 30 min |
 
 Every long action follows one pattern:
@@ -169,29 +183,35 @@ Periodic work is driven by Celery Beat:
 
 | Schedule | Task | What it does | Story |
 | --- | --- | --- | --- |
-| Every minute | `publishing.dispatch_due` | Claims due publications, enqueues due verifications, expires stale leases | E08-S03, E08-S04 |
 | Every minute | `core.tasks.beat_heartbeat` | Writes the cache key `beat:last_tick` for `ops_check` | E11-S02 |
 | Every 5 minutes | `core.sweep_stale_jobs` | Fails jobs past their deadline, or queued for more than six hours (`stale_job`) | E00-S06 |
-| Every 10 minutes | `analytics.collect_due_metrics` | Collects metric snapshots that are due | E09-S01 |
-| Every 10 minutes | `analytics.dispatch_follower_snapshots` | Records follower snapshots for accounts past 00:10 local time with no row for today | E09-S02 |
+| Every 10 minutes | `analytics.advance_entry_checkpoints` | A checkpoint whose time has passed with no captured row is due for entry. When its entry window ends (the next checkpoint's time, or `SOCIALHUB_METRICS_ENTRY_GRACE_DAYS` after the last one), writes a `skipped` snapshot with `skip_reason = missed` and moves the publication's checkpoint pointer on, clearing it after the last | E09-S04 |
 | Every 15 minutes | `analytics.evaluate_due` | Evaluates posts whose evaluation checkpoint has a captured snapshot | E10-S01 |
 | Hourly at minute 0 | `feeds.sync_active_sources` | Syncs active feed sources | E03-S01 |
 | Daily 02:00 UTC | `planning.close_finished_plans` | Closes plans whose week ended two days ago | E01-S03 |
-| Daily 02:15 UTC | `instagram.refresh_tokens` | Refreshes connected `graph_api` tokens whose `token_refreshed_at` is older than `SOCIALHUB_IG_TOKEN_REFRESH_AFTER_DAYS` (default 7) | E00-S04 |
 | Daily 02:30 UTC | `ai.prune_payloads` | Nulls `AIRun.payload` older than 30 days | E00-S05 |
-| Daily 03:00 UTC | `instagram.verify_all` | Enqueues `instagram.verify` with a random delay of up to 30 min for connected, non-manual, active accounts | E00-S04 |
 | Daily 03:00 UTC | `selection.expire_repurpose_tasks` | Dismisses open repurpose tasks past `expires_at` | E10-S04 |
 | Daily 03:15 UTC | `core.prune_jobs` | Deletes old system jobs of prunable kinds (succeeded after 7 days, failed after 30) | E00-S06 |
 | Daily 03:30 UTC | `core.prune_idempotency_keys` | Deletes idempotency rows older than 24 hours | E03-S03 |
 
 The `plan_closed` signal starts `analytics.generate_weekly_report` (E10-S02).
 
-Retries: transient provider errors retry inside the task with exponential backoff, at most three times. After that the job fails with a clear `error_code`, and the item shows the failure with a retry button. Stories may be stricter: `instagram.verify` waits 30 s, 2 min, 10 min; a failed scheduled token refresh is tried again by the next day's `instagram.refresh_tokens`; feed sync retries twice (10 s, 60 s); AI job tasks rely only on the gateway's own retries. Publishing has its own rule, described in E08-S04.
+Phase 2 periodic tasks, not scheduled in Phase 1:
+
+| Schedule | Task | What it does | Story |
+| --- | --- | --- | --- |
+| Every minute | `publishing.dispatch_due` | Claims due publications, enqueues due verifications, expires stale leases | E08-S03, E08-S04 |
+| Every 10 minutes | `analytics.collect_due_metrics` | Collects metric snapshots that are due | E09-S01 |
+| Every 10 minutes | `analytics.dispatch_follower_snapshots` | Records follower snapshots for accounts past 00:10 local time with no row for today | E09-S02 |
+| Daily 02:15 UTC | `instagram.refresh_tokens` | Refreshes connected `graph_api` tokens whose `token_refreshed_at` is older than `SOCIALHUB_IG_TOKEN_REFRESH_AFTER_DAYS` (default 7) | E00-S04 |
+| Daily 03:00 UTC | `instagram.verify_all` | Enqueues `instagram.verify` with a random delay of up to 30 min for connected, non-manual, active accounts | E00-S04 |
+
+Retries: transient provider errors retry inside the task with exponential backoff, at most three times. After that the job fails with a clear `error_code`, and the item shows the failure with a retry button. Stories may be stricter: feed sync retries twice (10 s, 60 s); AI job tasks rely only on the gateway's own retries. (Phase 2: `instagram.verify` waits 30 s, 2 min, 10 min; a failed scheduled token refresh is tried again by the next day's `instagram.refresh_tokens`; publishing has its own rule, described in E08-S04.)
 
 ### Time
 
 - Business code reads the time only through `django.utils.timezone.now()`, wrapped by `apps/core/clock.py`. A lint check bans `datetime.now(`, `datetime.utcnow(`, `time.time(` and `date.today(` in `backend/apps/` outside that module. The acceptance suite replaces the clock with a shared fake clock stored in Redis.
-- Business timing never depends on Celery ETAs or countdowns. Due work is found by periodic tasks reading timestamps in PostgreSQL (`scheduled_at`, `next_attempt_at`, `next_metrics_at`, `deadline_at`).
+- Business timing never depends on Celery ETAs or countdowns. Due work is found by periodic tasks reading timestamps in PostgreSQL (`scheduled_at`, `next_metrics_at`, `deadline_at`; Phase 2 adds `next_attempt_at`).
 - `apps/testing` (test hooks, fake clock control) is installed only when `SOCIALHUB_TESTING_HOOKS=true`. Related settings: `SOCIALHUB_FETCH_ALLOW_HOSTS` (hosts `safe_fetch` may reach even when they are private, such as the fixture server; honoured only when `DJANGO_DEBUG=true` or testing hooks are on) and `SOCIALHUB_E2E_PASSWORD`.
 
 ## 5. Provider adapters
@@ -202,19 +222,19 @@ Every external system sits behind an interface with a fake implementation for te
 | --- | --- | --- |
 | `TextModel` (reasoning, writing, vision, web search) | `anthropic`, `fake` | `SOCIALHUB_AI_TEXT_PROVIDER` |
 | `ImageModel` (image generation) | `openai`, `fake` | `SOCIALHUB_AI_IMAGE_PROVIDER` |
-| `InstagramProvider` (connect, publish, verify, insights, account stats) | `graph_api` (default for real accounts), `manual`, `fake` | Per account: `AccountConnection.provider` (initial value `SOCIALHUB_IG_DEFAULT_PROVIDER`, allowed set `SOCIALHUB_IG_ALLOWED_PROVIDERS`) |
+| `InstagramProvider` (connect, publish, verify, insights, account stats) (Phase 2) | `graph_api` (default for real accounts), `manual`, `fake` | Per account: `AccountConnection.provider` (initial value `SOCIALHUB_IG_DEFAULT_PROVIDER`, allowed set `SOCIALHUB_IG_ALLOWED_PROVIDERS`) |
 | `FeedReader` | `rss` (`feedparser`), `json_api` | Per `FeedSource.kind`; both fetch through `core.http.safe_fetch` |
 | Media storage | local filesystem, S3-compatible | `SOCIALHUB_MEDIA_BACKEND` |
 
-The existing settings file refuses to start unless every provider is `fixture` and publishing is disabled. E00-S04 and E00-S05 replace that guard with the settings above and remove `SOCIALHUB_PUBLISHER_PROVIDER`, `SOCIALHUB_PUBLISHING_ENABLED`, `SOCIALHUB_SOURCE_PROVIDER`, `SOCIALHUB_MODEL_PROVIDER` and `apps/core/providers.py`. Local development keeps the fakes as defaults. In production settings (`DJANGO_DEBUG=false`), startup refuses any `fake` provider and `SOCIALHUB_TESTING_HOOKS=true` (E11-S02).
+The existing settings file refuses to start unless every provider is `fixture` and publishing is disabled. In Phase 1, E00-S05 replaces that guard with the settings above and removes `SOCIALHUB_SOURCE_PROVIDER`, `SOCIALHUB_MODEL_PROVIDER`, `SOCIALHUB_PUBLISHER_PROVIDER`, `SOCIALHUB_PUBLISHING_ENABLED` and `apps/core/providers.py` (the last two settings were E00-S04's in the single-phase plan; nothing in Phase 1 sends, so they have no replacement). Local development keeps the fakes as defaults. In production settings (`DJANGO_DEBUG=false`), startup refuses any `fake` provider and `SOCIALHUB_TESTING_HOOKS=true` (E11-S02).
 
-Network: the backend and workers must reach `graph.instagram.com`, `api.instagram.com` and `www.instagram.com`. Host them where these are reachable, or route all Instagram traffic through the optional `SOCIALHUB_IG_HTTP_PROXY`. AI providers use the separate `HTTPS_PROXY` (E11-S02).
+Network: in Phase 1 the backend and workers need outbound HTTPS only to the AI providers, web search and the feed and research URLs fetched through `safe_fetch`. AI providers can use `HTTPS_PROXY` (E11-S02). (Phase 2: they must also reach `graph.instagram.com`, `api.instagram.com` and `www.instagram.com`. Host them where these are reachable, or route all Instagram traffic through the optional `SOCIALHUB_IG_HTTP_PROXY`.)
 
 ### Product settings
 
-AI settings are in [AI-INTEGRATION.md](AI-INTEGRATION.md) section 1, Instagram settings in [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGRATION.md) section 9, and media settings in section 6 below. Deployment variables (`SOCIALHUB_RELEASE`, `SOCIALHUB_DOMAIN`, `SENTRY_DSN`, `LOG_LEVEL`, `HTTPS_PROXY`, `NO_PROXY`, `BACKUP_*`) are listed in E11-S02.
+AI settings are in [AI-INTEGRATION.md](AI-INTEGRATION.md) section 1 and media settings in section 6 below. Deployment variables (`SOCIALHUB_RELEASE`, `SOCIALHUB_DOMAIN`, `SENTRY_DSN`, `LOG_LEVEL`, `HTTPS_PROXY`, `NO_PROXY`, `BACKUP_*`) are listed in E11-S02. (Phase 2: Instagram settings are in [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGRATION.md) section 9.)
 
-In brief, the Instagram settings cover the Meta app (`SOCIALHUB_META_APP_ID`, `SOCIALHUB_META_APP_SECRET`, `SOCIALHUB_META_REDIRECT_URI`), the pinned `SOCIALHUB_IG_API_VERSION`, the optional egress proxy `SOCIALHUB_IG_HTTP_PROXY`, `SOCIALHUB_IG_TOKEN_REFRESH_AFTER_DAYS`, `SOCIALHUB_IG_MEDIA_URL_TTL_SECONDS`, the token key `SOCIALHUB_ENCRYPTION_KEY`, and the provider choices `SOCIALHUB_IG_DEFAULT_PROVIDER`, `SOCIALHUB_IG_ALLOWED_PROVIDERS` and `SOCIALHUB_IG_CAPABILITY_OVERRIDES`.
+Phase 2 only, not read by Phase 1 code: the Instagram settings cover the Meta app (`SOCIALHUB_META_APP_ID`, `SOCIALHUB_META_APP_SECRET`, `SOCIALHUB_META_REDIRECT_URI`), the pinned `SOCIALHUB_IG_API_VERSION`, the optional egress proxy `SOCIALHUB_IG_HTTP_PROXY`, `SOCIALHUB_IG_TOKEN_REFRESH_AFTER_DAYS`, `SOCIALHUB_IG_MEDIA_URL_TTL_SECONDS`, the token key `SOCIALHUB_ENCRYPTION_KEY`, and the provider choices `SOCIALHUB_IG_DEFAULT_PROVIDER`, `SOCIALHUB_IG_ALLOWED_PROVIDERS` and `SOCIALHUB_IG_CAPABILITY_OVERRIDES`, plus `SOCIALHUB_PANEL_URL` for the OAuth callback's redirect.
 
 Content and fetching:
 
@@ -249,32 +269,34 @@ Checks:
 | `SOCIALHUB_QC_FACTS_MAX_CLAIMS` | Claims the facts check extracts at most | 25 |
 | `SOCIALHUB_QC_DESIGN_MAX_IMAGES` | Images the design check sends to vision at most | 4 |
 
-Publishing:
+Scheduling and posting. The three scheduling settings keep their `PUBLISH` names because the Phase 2 worker reads them too:
 
 | Setting | Purpose | Default |
 | --- | --- | --- |
-| `SOCIALHUB_PUBLISH_MIN_LEAD_MINUTES` | Minimum time between scheduling and sending | 10 |
+| `SOCIALHUB_PUBLISH_MIN_LEAD_MINUTES` | Minimum time between scheduling and the scheduled time (Phase 2: and sending) | 10 |
 | `SOCIALHUB_PUBLISH_WINDOW` | Local hours in which new times are chosen | `09:00-22:00` |
 | `SOCIALHUB_PUBLISH_GRID_MINUTES` | Grid for chosen times | 15 |
-| `SOCIALHUB_PUBLISH_BATCH_SIZE` | Publications claimed per dispatcher run | 20 |
-| `SOCIALHUB_PUBLISH_LEASE_SECONDS_IMAGE` / `_VIDEO` | Worker claim length | 360 / 480 |
-| `SOCIALHUB_PUBLISH_MAX_LATENESS_MINUTES` | How late a publication may still go out | 120 |
-| `SOCIALHUB_PUBLISH_MAX_ATTEMPTS` | Sends per publication before it fails | 3 |
-| `SOCIALHUB_PUBLISH_CONTAINER_POLL_IMAGE` / `_VIDEO` | In-worker container polling: interval and limit in seconds before the attempt is parked | `3,30` / `10,60` |
-| `SOCIALHUB_PUBLISH_CONTAINER_RECHECK_SECONDS` | Recheck interval for a parked container | 60 |
-| `SOCIALHUB_PUBLISH_CONTAINER_MAX_WAIT_MINUTES` | Longest wait for a container before `container_timeout` | 15 |
-| `SOCIALHUB_PUBLISH_QUOTA_RECHECK_MINUTES` | When a publication blocked by `daily_limit` is tried again | 60 |
-| `SOCIALHUB_PUBLISH_LIVE_MATCH_MAX_MINUTES` | How long a `PUBLISHED` container with no matching post is rechecked | 30 |
-| `SOCIALHUB_PUBLISH_RETRY_BACKOFF_MINUTES` | Waits between retries | `2,10,30` |
-| `SOCIALHUB_PUBLISH_VERIFY_SETTLE_SECONDS` / `_VERIFY_LOOKBACK_SECONDS` | Wait before checking live; how far before the attempt to look | 30 / 120 |
+| `SOCIALHUB_MANUAL_POST_OVERDUE_MINUTES` | Minutes after `scheduled_at` when a publication not yet marked published shows "Post by hand — overdue" (E08-S05) | 120 |
+| `SOCIALHUB_PUBLISH_BATCH_SIZE` (Phase 2) | Publications claimed per dispatcher run | 20 |
+| `SOCIALHUB_PUBLISH_LEASE_SECONDS_IMAGE` / `_VIDEO` (Phase 2) | Worker claim length | 360 / 480 |
+| `SOCIALHUB_PUBLISH_MAX_LATENESS_MINUTES` (Phase 2) | How late a publication may still go out | 120 |
+| `SOCIALHUB_PUBLISH_MAX_ATTEMPTS` (Phase 2) | Sends per publication before it fails | 3 |
+| `SOCIALHUB_PUBLISH_CONTAINER_POLL_IMAGE` / `_VIDEO` (Phase 2) | In-worker container polling: interval and limit in seconds before the attempt is parked | `3,30` / `10,60` |
+| `SOCIALHUB_PUBLISH_CONTAINER_RECHECK_SECONDS` (Phase 2) | Recheck interval for a parked container | 60 |
+| `SOCIALHUB_PUBLISH_CONTAINER_MAX_WAIT_MINUTES` (Phase 2) | Longest wait for a container before `container_timeout` | 15 |
+| `SOCIALHUB_PUBLISH_QUOTA_RECHECK_MINUTES` (Phase 2) | When a publication blocked by `daily_limit` is tried again | 60 |
+| `SOCIALHUB_PUBLISH_LIVE_MATCH_MAX_MINUTES` (Phase 2) | How long a `PUBLISHED` container with no matching post is rechecked | 30 |
+| `SOCIALHUB_PUBLISH_RETRY_BACKOFF_MINUTES` (Phase 2) | Waits between retries | `2,10,30` |
+| `SOCIALHUB_PUBLISH_VERIFY_SETTLE_SECONDS` / `_VERIFY_LOOKBACK_SECONDS` (Phase 2) | Wait before checking live; how far before the attempt to look | 30 / 120 |
 
 Analytics and evaluation:
 
 | Setting | Purpose | Default |
 | --- | --- | --- |
-| `SOCIALHUB_METRICS_MAX_POSTS_PER_ACCOUNT_CYCLE` | Posts collected per account per 10-minute cycle | 10 |
-| `SOCIALHUB_METRICS_LOCK_WAIT_SECONDS` | How long the collector waits for the account's Instagram lock | 10 |
-| `SOCIALHUB_METRICS_OVERDUE_MINUTES` | When a missed checkpoint counts as overdue on the overview | 60 |
+| `SOCIALHUB_METRICS_ENTRY_GRACE_DAYS` | Days after the last evaluation checkpoint (`7d`, or `23h` for stories) during which it stays due for entry before it is skipped as `missed` (E09-S04) | 3 |
+| `SOCIALHUB_METRICS_MAX_POSTS_PER_ACCOUNT_CYCLE` (Phase 2) | Posts collected per account per 10-minute cycle | 10 |
+| `SOCIALHUB_METRICS_LOCK_WAIT_SECONDS` (Phase 2) | How long the collector waits for the account's Instagram lock | 10 |
+| `SOCIALHUB_METRICS_OVERDUE_MINUTES` (Phase 2) | When a checkpoint the collector missed counts as overdue on the overview | 60 |
 | `SOCIALHUB_EVAL_OUTPERFORM_RATIO` / `_UNDERPERFORM_RATIO` | Verdict thresholds against the baseline; validated at startup | 1.5 / 0.6 |
 | `SOCIALHUB_EVAL_BASELINE_DAYS` / `_BASELINE_MIN_SAMPLES` | Baseline window and minimum sample | 60 / 5 |
 
@@ -292,16 +314,18 @@ Operations:
 - `SOCIALHUB_MEDIA_BACKEND` is `local` or `s3`. Hosted environments must use `s3`; startup refuses `local` when `DEBUG` is false. A `minio` service under the Compose `s3` profile gives a local S3-compatible bucket.
 - Media settings: `SOCIALHUB_S3_BUCKET`, `SOCIALHUB_S3_ENDPOINT_URL`, `SOCIALHUB_S3_REGION`, `SOCIALHUB_S3_ACCESS_KEY_ID`, `SOCIALHUB_S3_SECRET_ACCESS_KEY`, `SOCIALHUB_S3_ADDRESSING_STYLE`, `SOCIALHUB_S3_PUBLIC_BASE_URL`, `SOCIALHUB_MEDIA_URL_TTL_SECONDS` (default 21600), `SOCIALHUB_MEDIA_BASE_URL`, `SOCIALHUB_WORK_DIR` (worker temp files). Dependencies: `django-storages[s3]`, `filetype`; `moto` in tests.
 - The API returns short-lived signed URLs when the bucket is private, and plain media URLs locally.
-- Instagram publishing passes Meta a URL, not a file: Meta's servers download the final asset (and the reel cover) from storage. `apps.instagram.media.public_url(asset)` signs an HTTPS URL valid for `SOCIALHUB_IG_MEDIA_URL_TTL_SECONDS` (default 7,200). The hosted bucket must therefore be publicly reachable over HTTPS. Local development uses the `fake` provider; testing real publishing locally needs a cloud bucket.
+- In Phase 1 the hosted bucket is private and need not be reachable from the internet beyond the panel's users: the operator downloads the final asset and the reel cover from the posting pack (`posting_pack` on `GET /publications/{id}/`, E08-S05) through signed URLs.
+- (Phase 2) Instagram publishing passes Meta a URL, not a file: Meta's servers download the final asset (and the reel cover) from storage. `apps.instagram.media.public_url(asset)` signs an HTTPS URL valid for `SOCIALHUB_IG_MEDIA_URL_TTL_SECONDS` (default 7,200). The hosted bucket must therefore be publicly reachable over HTTPS. Local development uses the `fake` provider; testing real publishing locally needs a cloud bucket.
 
 ## 7. Security basics
 
 - Session cookies are HTTP-only, `SameSite=Lax`, and `Secure` unless `DJANGO_DEBUG` is true. Sessions last 14 days of inactivity (`SESSION_SAVE_EVERY_REQUEST`). Mutating requests need the CSRF token. No public registration; users are created by an admin.
 - Failed sign-ins are throttled at 5 per username and IP per 15 minutes.
-- Admin-only actions: Instagram connection, account creation, archive and handle changes, publishing switch, autopilot switches, system settings.
-- Instagram access tokens are encrypted with Fernet using `SOCIALHUB_ENCRYPTION_KEY`. The setting accepts a comma-separated list for rotation (the first key encrypts, all keys decrypt); startup fails without a valid key. The Meta app secret (`SOCIALHUB_META_APP_SECRET`) stays in the environment and is used only server-side, for the token exchange. Tokens and the app secret are never returned by the API or written to logs; the API exposes only `has_token`.
-- The OAuth callback accepts only a `state` issued in the last 10 minutes, and connects only when the Instagram username equals the account's handle.
-- Redis also backs Django's cache (`REDIS_URL`): sign-in throttle counters, OAuth `state` values (10 minutes), and per-account Instagram locks `ig:lock:{account_id}`.
+- Admin-only actions: account creation, archive and handle changes, autopilot switches, system settings. (Phase 2: also the Instagram connection and the publishing switch.)
+- Phase 1 stores no Instagram credentials: there is no token, no Meta app secret and no OAuth callback.
+- (Phase 2) Instagram access tokens are encrypted with Fernet using `SOCIALHUB_ENCRYPTION_KEY`. The setting accepts a comma-separated list for rotation (the first key encrypts, all keys decrypt); startup fails without a valid key. The Meta app secret (`SOCIALHUB_META_APP_SECRET`) stays in the environment and is used only server-side, for the token exchange. Tokens and the app secret are never returned by the API or written to logs; the API exposes only `has_token`.
+- (Phase 2) The OAuth callback accepts only a `state` issued in the last 10 minutes, and connects only when the Instagram username equals the account's handle.
+- Redis also backs Django's cache (`REDIS_URL`): sign-in throttle counters. (Phase 2: also OAuth `state` values (10 minutes) and per-account Instagram locks `ig:lock:{account_id}`.)
 - AI payload logs can contain unpublished content. They are visible to admins only and pruned after 30 days.
 - Uploads are validated by MIME type, extension and size before they are stored.
 
@@ -309,17 +333,18 @@ Operations:
 
 - Every request carries `X-Request-ID` (already implemented). Jobs store the request ID that created them.
 - Logs are JSON lines in hosted environments, with `job_id`, `account_id`, `content_item_id` where they apply.
-- `AIRun` records model, tokens, cost and latency for every AI call. `PublishAttempt` records every send. `ContentEvent` records every status change. Together they answer "what happened to this item" without reading logs.
+- `AIRun` records model, tokens, cost and latency for every AI call. `ContentEvent` records every status change, including who marked a post published and when. Together they answer "what happened to this item" without reading logs. (Phase 2: `PublishAttempt` records every send.)
 - Optional error tracking with Sentry when `SENTRY_DSN` is set: release, environment, and tags `job_id`, `account_id`, `content_item_id`. Request bodies and AI payloads are never sent (E11-S02).
 
 ## 9. How this grows after the MVP
 
 | Later need | What changes | What stays |
 | --- | --- | --- |
+| Instagram API (Phase 2) | Add the `instagram` app, `AccountConnection`, `PublishAttempt`, the `publish` queue and `publish-worker`, the metric and follower collectors, and `delivery = provider` / `source = provider` rows | Pipeline statuses and transitions, `Publication`, scheduler, calendar, `MetricSnapshot`, evaluation; the manual route stays as the fallback |
 | More throughput | Add worker containers per queue; move rendering to bigger machines | Queue names, task code |
 | Many teams | Add `Workspace` and a foreign key on `InstagramAccount`; filter by membership | Every other table already hangs off the account |
 | More platforms | Add a platform field on the account model and a provider per platform | Pipeline, checks, analytics shape |
 | More formats | Add an entry to the format registry, a render template and provider method | Statuses, checks framework |
-| Instagram trend research | Add the `graph_api_fb` adapter (Facebook Login) for hashtag search and business discovery, then E02-S03 | Provider interface, research pipeline |
+| Instagram trend research (Phase 2) | Add the `graph_api_fb` adapter (Facebook Login) for hashtag search and business discovery, then E02-S03 | Provider interface, research pipeline |
 | Smarter selection and evaluation | Replace scoring functions; add embeddings | Candidate and evaluation tables |
 | Split into services | The apps already talk through service functions and job IDs | API contract |

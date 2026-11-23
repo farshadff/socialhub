@@ -14,7 +14,7 @@ As a team member, I want to sign in to the panel with my username and password a
 
 ## Context
 
-The scaffold has Django session authentication switched on in DRF (`SessionAuthentication`, `IsAuthenticated` by default) but no API to sign in, and the panel fakes a "Local Admin" identity in `frontend/src/app.tsx`. The template's login page talks to Ant Design Pro mock endpoints. This story adds the four auth endpoints, the two-role rule, and a real sign-in page.
+The scaffold has Django session authentication switched on in DRF (`SessionAuthentication`, `IsAuthenticated` by default) but no API to sign in, and the Refine panel has no `authProvider` yet, so every page is open. This story adds the four auth endpoints, the two-role rule, a Refine `authProvider` and a sign-in page.
 
 There is no registration and no user administration screen in the MVP. An admin creates users with `python manage.py createsuperuser` (admins) or in Django admin at `/admin/` (operators).
 
@@ -159,17 +159,17 @@ None.
 
 ### Route `/user/login`
 
-- No layout (`layout: false`), centred card, max width 400 px, on the page background token.
+- Outside `ThemedLayout` (its route sits outside the layout route), centred card, max width 400 px, on the page background token.
 - Top of the card: the Social Hub logo (`/socialhub.svg`, 48 px) and the name "Social Hub", then the line "Sign in to continue".
-- `LoginForm` from Pro Components with two fields and one button:
+- An Ant Design `Form` submitted through Refine's `useLogin`, with two fields and one button (Refine's ready-made `AuthPage` is not used, because the page needs the states below):
 
 | Field | Component | Rules |
 | --- | --- | --- |
-| Username | `ProFormText`, user icon, `autoComplete="username"`, autofocus | Required: "Enter your username" |
-| Password | `ProFormText.Password`, lock icon, `autoComplete="current-password"` | Required: "Enter your password" |
+| Username | `Input`, user icon, `autoComplete="username"`, autofocus | Required: "Enter your username" |
+| Password | `Input.Password`, lock icon, `autoComplete="current-password"` | Required: "Enter your password" |
 
 - Button: "Sign in", full width, shows a loading state while the request runs. Enter submits.
-- Remove everything else the template login page has: the phone tab, captcha, "auto login", "forgot password", third-party icons, the language selector.
+- Nothing else: no registration, "remember me", "forgot password", third-party sign-in or language selector.
 
 States:
 
@@ -179,34 +179,34 @@ States:
 | `invalid_credentials` | Inline error `Alert` above the fields: "Wrong username or password." Password field is cleared and focused |
 | `rate_limited` | Inline error `Alert`: "Too many attempts. Try again in {n} minutes." using `Retry-After`; the button is disabled until then |
 | `csrf_failed` | Fetch a new token once and resubmit silently; if it fails again show "Your session expired. Reload the page." |
-| Success | Store the returned user in initial state, then go to the `redirect` query parameter if it is a same-origin path (keep the template's `getSafeRedirectUrl`), otherwise `/overview` |
+| Success | `authProvider.login` resolves `{ success: true, redirectTo }`: the `to` query parameter if it is a same-origin path (a path starting with a single `/`), otherwise `/overview`. Refine then refetches the identity |
 | Already signed in | Visiting `/user/login` with a valid session redirects to `/overview` |
 
-### Session bootstrap (`src/app.tsx`)
+### Session bootstrap (`src/providers/auth-provider.ts`)
 
-1. `getInitialState` calls `GET /auth/me/` with `skipErrorHandler`.
-2. On `200`, `currentUser` is `{ id, name: full_name, username, email, access: role }`.
-3. On `403 authentication_required`, `currentUser` is undefined and, unless the current path starts with `/user/`, the app redirects to `/user/login?redirect=<current path and query>`.
-4. `src/access.ts` keeps `canAdmin` and derives it from `currentUser.access === 'admin'`.
-5. The layout's `onPageChange` repeats the redirect check so a session that ends mid-use sends the user to sign-in on the next navigation.
+1. `authProvider.check` calls `GET /auth/me/` (through the data provider's request helper, without an error notification).
+2. On `200`, `getIdentity` returns `{ id, name: full_name, username, email, role }` (Refine's `useGetIdentity`), and `getPermissions` returns the role.
+3. On `403 authentication_required`, `check` resolves `{ authenticated: false, redirectTo: "/user/login" }`. Protected routes are wrapped in Refine's `<Authenticated fallback={<CatchAllNavigate to="/user/login" />}>`, which adds `?to=<current path and query>`; `/user/login` is outside that wrapper.
+4. `src/providers/access-control.ts` (the `accessControlProvider` used by E00-S02 rule 11) reads the role: admin-only resources and actions return `can: false` for operators.
+5. Refine re-runs `check` on navigation, so a session that ends mid-use sends the user to sign-in on the next navigation.
 
-### Request layer (`src/requestErrorConfig.ts`)
+### Request layer (`src/providers/data-provider.ts`)
 
-- A request interceptor reads the `csrftoken` cookie and sets `X-CSRFToken` on every non-`GET` request. If the cookie is missing it first calls `GET /auth/csrf/`.
-- A response handler: on `403` with code `authentication_required` from any endpoint other than `/auth/me/`, clear `currentUser` and redirect to `/user/login?redirect=…` with the message "Your session ended. Sign in again."
-- The full error-code-to-text map is built in E00-S02; this story adds only the two behaviours above and replaces the template's `success/errorCode` response format handling with the Social Hub error shape.
+- The data provider already reads the `csrftoken` cookie and sets `X-CSRFToken` on every non-`GET` request. This story adds: if the cookie is missing, first call `GET /auth/csrf/`.
+- `authProvider.onError`: on `403` with code `authentication_required` from any endpoint other than `/auth/me/`, resolve `{ logout: true, redirectTo: "/user/login" }` and show the message "Your session ended. Sign in again." Refine calls `onError` for every failed data hook.
+- The full error-code-to-text map is built in E00-S02; this story adds only the two behaviours above. The data provider already parses the Social Hub error shape.
 
 ### Sign out
 
-The avatar menu in the top bar has one account action, "Sign out". It calls `POST /auth/logout/`, clears initial state and goes to `/user/login`. Remove the template's "Center" and "Settings" items; keep the theme choice.
+The avatar menu in the top bar has one account action, "Sign out". It calls Refine's `useLogout`, whose `authProvider.logout` posts `POST /auth/logout/` and resolves `{ success: true, redirectTo: "/user/login" }`. The menu also holds the theme choice (E00-S02 rule 15).
 
 ## Acceptance criteria
 
-1. Given an active user with correct credentials, when they submit the sign-in form, then they land on `/overview` (or the `redirect` path) and `GET /auth/me/` returns their role.
+1. Given an active user with correct credentials, when they submit the sign-in form, then they land on `/overview` (or the `to` path) and `GET /auth/me/` returns their role.
 2. Given a wrong password, when they submit, then the page shows "Wrong username or password.", no session cookie is set, and the response code is `invalid_credentials`.
 3. Given an inactive user with the correct password, when they submit, then the result is identical to criterion 2.
 4. Given 5 failed attempts for one username from one IP within 15 minutes, when a sixth is made, then the API returns `429 rate_limited` with `Retry-After` and the page shows the wait time.
-5. Given no session, when any protected page is opened directly, then the browser goes to `/user/login?redirect=<that page>` and returns there after sign-in.
+5. Given no session, when any protected page is opened directly, then the browser goes to `/user/login?to=<that page>` and returns there after sign-in.
 6. Given a signed-in operator, when they call an admin-only endpoint, then the API returns `403 permission_denied`.
 7. Given a signed-in user, when they choose "Sign out", then the session is deleted server-side and a following `GET /auth/me/` returns `403 authentication_required`.
 8. Given a `POST` without `X-CSRFToken`, when it reaches any endpoint including login, then the API returns `403 csrf_failed`.
@@ -227,9 +227,9 @@ The avatar menu in the top bar has one account action, "Sign out". It calls `POS
 
 | ID | Task | Detail | Est. |
 | --- | --- | --- | --- |
-| E00-S01-FE1 | Auth service and request layer | `src/services/socialhub/auth.ts` (`getCsrf`, `login`, `logout`, `getMe`) with types. CSRF request interceptor and `authentication_required` handling in `src/requestErrorConfig.ts`; replace the template's `ResponseStructure` handling with the Social Hub error shape. Unit tests for the interceptor and redirect. | 0.5 |
-| E00-S01-FE2 | Sign-in page | Rewrite `src/pages/user/login/index.tsx` to the spec: two fields, states table, safe redirect. Delete the register and register-result pages and their routes. Component test for each state. | 0.5 |
-| E00-S01-FE3 | Session bootstrap and sign-out | `getInitialState` from `GET /auth/me/`, redirect rules, `access.ts`, avatar menu with "Sign out". Update `src/app.test.tsx` and `src/access.test.ts`; update `e2e/login.spec.ts` to sign in against the real API. | 0.5 |
+| E00-S01-FE1 | Auth provider and request layer | `src/providers/auth-provider.ts` (`login`, `logout`, `check`, `onError`, `getIdentity`, `getPermissions`) with types, registered on `<Refine>`. Missing-cookie CSRF fetch in `src/providers/data-provider.ts`. Unit tests for `check`, `onError` and the CSRF header. | 0.5 |
+| E00-S01-FE2 | Sign-in page | `src/pages/user/login/index.tsx` to the spec with `useLogin`: two fields, states table, safe `to` redirect; route outside `ThemedLayout`. Component test for each state. | 0.5 |
+| E00-S01-FE3 | Session bootstrap and sign-out | `<Authenticated>` around the layout route, `accessControlProvider` from the role, avatar menu with "Sign out" (`useLogout`). Remove the demo sample card from the Overview page, because BE2 removes `/demo/`. Add `e2e/login.spec.ts` (Playwright) signing in against the real API. | 0.5 |
 
 ### Test
 
@@ -238,8 +238,8 @@ None beyond the tests inside each subtask.
 ## Test notes
 
 - **API tests (pytest + DRF client with `enforce_csrf_checks=True`):** csrf endpoint sets cookie; login success rotates session key; the three failure cases return identical bodies apart from `request_id`; throttle window and reset; logout idempotent; `me` with and without session; inactive user; role derivation.
-- **Panel tests (Vitest):** interceptor adds header only to mutating requests; `authentication_required` triggers one redirect, not a loop, when `/auth/me/` itself returns it; login page states.
-- **End to end (Playwright, existing `e2e/login.spec.ts`):** sign in as a seeded admin, see the shell, sign out, get redirected when opening a protected route.
+- **Panel tests (Vitest):** the data provider adds the CSRF header only to mutating requests; `authentication_required` triggers one redirect, not a loop, when `/auth/me/` itself returns it; login page states.
+- **End to end (Playwright, `e2e/login.spec.ts`):** sign in as a seeded admin, see the shell, sign out, get redirected when opening a protected route.
 - Fixture: a management command or pytest fixture that creates `admin` (superuser) and `operator` users for tests; reused by later stories.
 
 ## Later

@@ -6,7 +6,7 @@
 | Priority | Must |
 | Estimate | BE 2 d · FE 4 d |
 | Depends on | E00-S06, E03-S04, E04-S01, E05-S02, E06-S01, E06-S02, E06-S03, E06-S06 |
-| Needed by | E06-S04, E06-S05, E07-S01, E07-S05, E07-S06, E08-S03 |
+| Needed by | E06-S04, E06-S05, E07-S01, E07-S05, E07-S06, E08-S05 |
 
 ## User story
 

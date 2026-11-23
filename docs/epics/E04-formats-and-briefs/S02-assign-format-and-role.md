@@ -301,7 +301,7 @@ In the workspace header (E03-S04), the format tag, production mode and role tag 
 
 ### "Format and role" modal
 
-`ModalForm`, width 640, title "Format and role".
+`Modal` form (`useModalForm`), width 640, title "Format and role".
 
 | Field | Control | Behaviour |
 | --- | --- | --- |

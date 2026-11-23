@@ -1,5 +1,9 @@
 # Instagram integration
 
+> **Phase 2 — not built in Phase 1.** Phase 1 makes no calls to Instagram: there is no Meta app, no OAuth, no stored token and no `instagram` Django app. Every publication has `delivery = manual`; the operator posts from the posting pack and pastes the link ([E08-S05](epics/E08-schedule-and-publish/S05-post-by-hand.md)), and metrics and follower counts are typed in at the evaluation checkpoints ([E09-S03](epics/E09-analytics-refresh/S03-analytics-views.md), [E09-S04](epics/E09-analytics-refresh/S04-entry-checkpoints.md)). This document is the design for Phase 2. When Phase 2 starts, the `manual` provider below takes over the Phase 1 route unchanged, and the week-1 spike in E00-S04 becomes Phase 2's first task. See [ROADMAP.md](ROADMAP.md) section 8.
+>
+> In the rest of this document, "the MVP" means the MVP with Phase 2 in place.
+
 The MVP uses Meta's official Instagram Platform API: the **Instagram API with Instagram Login** (also called Business Login for Instagram). Everything Instagram-specific sits behind one provider interface, so a `manual` fallback or the Facebook Login variant of the API can be used per account without touching the rest of the product.
 
 Facts in this document come from Meta's developer documentation as of November 2026. Items marked **(confirm in setup)** could not be checked against the live documentation while this plan was written; E00-S04's setup spike confirms each one on a real account and records the result before dependent stories start.

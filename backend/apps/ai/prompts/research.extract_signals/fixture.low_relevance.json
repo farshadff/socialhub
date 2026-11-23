@@ -1,0 +1,6 @@
+{
+  "signals": [
+    {"url": "https://example.com/fake-result-1", "title": "Why filter coffee is back on café menus", "excerpt": "Cafés report rising orders for batch brew and pour-over.", "author": "Example Coffee News", "published_at": "2026-11-20", "relevance": 88},
+    {"url": "https://example.com/fake-result-2", "title": "Batch brew is having a moment", "excerpt": "Loosely related piece.", "author": "Example Roasters Blog", "published_at": null, "relevance": 12}
+  ]
+}

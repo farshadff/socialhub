@@ -15,4 +15,5 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/v1/", api_root, name="api-root"),
     path("api/v1/", include("apps.core.urls")),
+    path("api/v1/research/", include("apps.research.urls")),
 ]

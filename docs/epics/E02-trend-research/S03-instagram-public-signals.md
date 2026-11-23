@@ -1,12 +1,14 @@
 # E02-S03 — Collect public Instagram signals
 
+> **Phase 2 — not built in Phase 1.** It needs a connected account on the Facebook Login adapter `graph_api_fb`, and Phase 1 has no Instagram connection; until then an operator adds an Instagram post found by hand as a manual signal with its link ([E02-S02](S02-collect-signals.md), rules 36–40).
+
 | | |
 | --- | --- |
 | Epic | E02 Trend research |
-| Priority | Later |
-| Estimate | Not scheduled (estimated BE 2 d when scheduled) |
-| Depends on | E02-S02, E00-S04; the `graph_api_fb` adapter with Facebook Login (not in the MVP) |
-| Needed by | None in the MVP. E02-S04 would use its signals as extra input |
+| Priority | Phase 2 |
+| Estimate | Not in the Phase 1 total (estimated BE 2 d when scheduled in Phase 2) |
+| Depends on | E02-S02, E00-S04; the `graph_api_fb` adapter with Facebook Login (not in Phase 1) |
+| Needed by | None in Phase 1. E02-S04 would use its signals as extra input |
 
 ## User story
 
@@ -14,9 +16,9 @@ As an operator, I want research runs to also look at top posts under my watched 
 
 ## Context
 
-**Later — not in the MVP.** The MVP connects accounts with the Instagram API with Instagram Login ([INSTAGRAM-INTEGRATION.md](../../INSTAGRAM-INTEGRATION.md), sections 1 and 2). That API has no hashtag search and no business discovery. Both exist only in the Facebook Login for Business variant on `graph.facebook.com`, which needs each account linked to a Facebook Page in a Meta Business portfolio.
+**Phase 2.** Phase 1 has no Instagram connection. Phase 2 connects accounts with the Instagram API with Instagram Login ([INSTAGRAM-INTEGRATION.md](../../INSTAGRAM-INTEGRATION.md), sections 1 and 2). That API has no hashtag search and no business discovery. Both exist only in the Facebook Login for Business variant on `graph.facebook.com`, which needs each account linked to a Facebook Page in a Meta Business portfolio.
 
-Until this story is built, research uses web search, RSS and manual signals. An operator who finds a relevant Instagram post adds it as a manual signal with its URL and numbers (E02-S02, rules 36–40). The source kinds `instagram_hashtag` and `instagram_account` are reserved for this story and cannot be created in the MVP (E02-S01, rule 2).
+Until this story is built, research uses web search, RSS and manual signals. An operator who finds a relevant Instagram post adds it as a manual signal with its URL and numbers (E02-S02, rules 36–40). The source kinds `instagram_hashtag` and `instagram_account` are reserved for this story and cannot be created in Phase 1 (E02-S01, rule 2).
 
 This file keeps a compact design so the story can be scheduled without new research. The estimate covers the research calls, the collector and the run integration. Connecting accounts through Facebook Login (the `graph_api_fb` adapter's connect flow, INSTAGRAM-INTEGRATION.md section 8) is separate work and is not estimated here.
 
@@ -142,7 +144,7 @@ No new screens. When scheduled, E02-S01's Sources tab gets back the kinds "Hasht
 | --- | --- | --- | --- |
 | E02-S03-FE1 | Re-enable Instagram kinds in the panel | Kind options, value placeholders and client validation in `SourceFormModal.tsx`; kind tags and status tooltips in `SourcesTab.tsx` and `SignalsTab.tsx`. | — |
 
-The 2 backend days are not counted in the MVP total in [ROADMAP.md](../../ROADMAP.md). FE1 is small and is estimated together with the backend when the story is scheduled.
+The 2 backend days are not counted in the Phase 1 total in [ROADMAP.md](../../ROADMAP.md). FE1 is small and is estimated together with the backend when the story is scheduled.
 
 ### Test
 

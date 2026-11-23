@@ -4,6 +4,15 @@ This folder holds the MVP plan for the Instagram workflow in `Social_Hub_Instagr
 
 The MVP-*.md and MVP-*.csv files in the repository root describe an earlier, wider backlog written from the Phase 1 PRD. This folder is narrower: it covers only the ten-step workflow. Where the two disagree on scope, this folder is the plan to build from.
 
+## Phases
+
+The plan is built in two phases (details in [ROADMAP.md](ROADMAP.md) section 0):
+
+- **Phase 1 — Content engine (build now).** AI agents and the operator panel: weekly plan, research, feed reading and analysis, selection, briefs, scripts, asset and copy production, quality checks, scheduling, manual posting with a posting pack, manual metric entry, evaluation and the feedback loops. No Instagram API.
+- **Phase 2 — Instagram API (next).** Account connection through Meta's Instagram API, automated publishing with verify-before-retry, automatic metrics and follower counts.
+
+Files and stories that belong to Phase 2 say so at the top. Everything else is Phase 1.
+
 ## Start here
 
 | Document | Read it for |
@@ -13,7 +22,7 @@ The MVP-*.md and MVP-*.csv files in the repository root describe an earlier, wid
 | [DATA-MODEL.md](DATA-MODEL.md) | Every table, field and enum |
 | [API.md](API.md) | API conventions and the full endpoint index |
 | [AI-INTEGRATION.md](AI-INTEGRATION.md) | How Claude and OpenAI are called, the task list, prompts, cost logging |
-| [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGRATION.md) | The official Instagram API (Instagram Login): Meta app setup, OAuth and tokens, publishing, verification, metrics, the manual fallback |
+| [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGRATION.md) | **Phase 2.** The official Instagram API (Instagram Login): Meta app setup, OAuth and tokens, publishing, verification, metrics, the manual fallback |
 | [DESIGN-SYSTEM.md](DESIGN-SYSTEM.md) | Panel layout, tokens, components, page states, navigation map |
 | [openapi.yaml](openapi.yaml) | The machine-readable contract for endpoints that already exist |
 
@@ -31,7 +40,7 @@ Each epic is one directory. Its `README.md` gives the goal, scope, stories and d
 | E05 Script and storyboard | 05 | [epics/E05-script-and-storyboard](epics/E05-script-and-storyboard/README.md) |
 | E06 Assets and copy | 06 | [epics/E06-assets-and-copy](epics/E06-assets-and-copy/README.md) |
 | E07 Quality check | 07 | [epics/E07-quality-check](epics/E07-quality-check/README.md) |
-| E08 Schedule and publish | 08 | [epics/E08-schedule-and-publish](epics/E08-schedule-and-publish/README.md) |
-| E09 Analytics refresh | 09 | [epics/E09-analytics-refresh](epics/E09-analytics-refresh/README.md) |
+| E08 Schedule and post (API publishing is Phase 2) | 08 | [epics/E08-schedule-and-publish](epics/E08-schedule-and-publish/README.md) |
+| E09 Analytics refresh (manual entry; API collection is Phase 2) | 09 | [epics/E09-analytics-refresh](epics/E09-analytics-refresh/README.md) |
 | E10 Evaluate and feed back | 10 and both feedback loops | [epics/E10-evaluate-and-feedback](epics/E10-evaluate-and-feedback/README.md) |
 | E11 Release | Prerequisite for going live | [epics/E11-release](epics/E11-release/README.md) |

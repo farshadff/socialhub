@@ -363,7 +363,7 @@ Route: `/content/:id`, tab **Script**. This story delivers the minimum; E05-S02 
 | Brief approved, no script | `Empty`: "No script yet. Generate one from the brief." Primary `JobButton` "Generate script". |
 | Job running | `JobProgress` with the job message; the tab content is dimmed. |
 | Job failed | `Result` (error) with the text for the error code and a "Try again" button. `request_id` shown small. |
-| Script exists | Header line: "Version 1", `StatusTag` for the version status, tag "AI". Below it a read-only view: scenario and hook in `ProDescriptions`; shots in a plain table; frames as a row of cards showing template, headline, body, duration; design notes in `ProDescriptions`. All content text uses `ContentText`. |
+| Script exists | Header line: "Version 1", `StatusTag` for the version status, tag "AI". Below it a read-only view: scenario and hook in `Descriptions`; shots in a plain table; frames as a row of cards showing template, headline, body, duration; design notes in `Descriptions`. All content text uses `ContentText`. |
 | Script invalid | An `Alert` (warning) above the view: "This script has {n} problems that must be fixed before approval." with the issue messages listed. |
 | Provider not configured | `Result` (warning): "The AI provider is not configured. Ask an admin to check Settings → System." |
 

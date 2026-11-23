@@ -252,7 +252,7 @@ Route `/selection`. This story builds the page header and fills the "Candidates"
 
 ### Candidates tab
 
-- `ProTable`, 20 per page, default order by rank.
+- `Table` (`useTable`), 20 per page, default order by rank.
 - Columns:
 
   | Column | Content |

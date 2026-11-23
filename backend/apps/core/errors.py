@@ -15,6 +15,7 @@ from rest_framework.exceptions import (
 )
 from rest_framework.views import exception_handler
 
+from .exceptions import CodedAPIException
 from .middleware import error_payload
 
 _ERROR_MESSAGES = {
@@ -32,6 +33,10 @@ _ERROR_MESSAGES = {
     "server_error": "خطای پیش‌بینی‌نشده‌ای رخ داد. با کد پیگیری با پشتیبانی تماس بگیرید.",
     "request_error": "درخواست قابل پردازش نیست.",
     "csrf_failed": "درخواست منقضی یا نامعتبر است. صفحه را تازه‌سازی کنید.",
+    "invalid_transition": "این عملیات در وضعیت فعلی مجاز نیست.",
+    "job_in_progress": "این کار در حال انجام است. تا پایان آن صبر کنید.",
+    "provider_not_configured": "سرویس هوش مصنوعی پیکربندی نشده است.",
+    "provider_error": "سرویس هوش مصنوعی پاسخ نداد. کمی بعد دوباره تلاش کنید.",
 }
 
 _FIELD_MESSAGES = {
@@ -44,6 +49,27 @@ _FIELD_MESSAGES = {
     "max_length": "تعداد نویسه‌ها بیشتر از حد مجاز است.",
     "does_not_exist": "مورد انتخاب‌شده معتبر نیست.",
     "unique": "این مقدار قبلاً ثبت شده است.",
+    "immutable": "این مقدار پس از ایجاد قابل تغییر نیست.",
+    "limit_reached": "به سقف مجاز رسیده‌اید.",
+    "no_active_sources": "هیچ منبع فعالی انتخاب نشده است.",
+    "nothing_to_do": "دست‌کم یکی از گردآوری یا دسته‌بندی باید فعال باشد.",
+    "url_or_excerpt_required": "نشانی یا خلاصه را وارد کنید.",
+    "invalid_choice": "گزینهٔ انتخاب‌شده معتبر نیست.",
+    "null": "این مقدار نمی‌تواند خالی باشد.",
+    "not_a_list": "این مقدار باید فهرست باشد.",
+    "empty": "این فهرست نمی‌تواند خالی باشد.",
+    "read_only": "این مقدار قابل تغییر نیست.",
+    "duplicate": "این مورد تکراری است.",
+    "invalid_combination": "این ترکیب مقادیر مجاز نیست.",
+    "invalid_week_start": "این تاریخ روز شروع هفتهٔ حساب نیست.",
+    "out_of_range": "این هفته خارج از بازهٔ مجاز است.",
+    "account_archived": "این حساب بایگانی شده است.",
+    "outside_week": "این زمان خارج از هفتهٔ برنامه است.",
+    "too_soon": "این زمان باید دست‌کم ۳۰ دقیقه بعد از اکنون باشد.",
+    "exceeds_daily_limit": "تعداد انتشار در این روز از سقف مجاز حساب بیشتر می‌شود.",
+    "gap_too_small": "فاصلهٔ این انتشار با انتشار دیگرِ همان روز کمتر از حد مجاز است.",
+    "max_slots": "تعداد اسلات‌های برنامه به سقف مجاز رسیده است.",
+    "no_template": "برای این حساب الگوی هفتگی فعالی تعریف نشده است.",
 }
 
 
@@ -88,6 +114,8 @@ def _flatten_validation(detail, path: str = "") -> list[dict[str, str]]:
 
 
 def _error_code(exc, http_status: int) -> str:
+    if isinstance(exc, CodedAPIException):
+        return exc.error_code
     if isinstance(exc, ValidationError):
         return "validation_error"
     if isinstance(exc, (AuthenticationFailed, NotAuthenticated)):
@@ -101,6 +129,9 @@ def _error_code(exc, http_status: int) -> str:
     if isinstance(exc, Throttled):
         return "rate_limited"
     return {
+        # Django's Http404 / PermissionDenied reach here unconverted (DRF converts a copy).
+        status.HTTP_403_FORBIDDEN: "permission_denied",
+        status.HTTP_404_NOT_FOUND: "not_found",
         status.HTTP_409_CONFLICT: "state_conflict",
         status.HTTP_413_REQUEST_ENTITY_TOO_LARGE: "payload_too_large",
         status.HTTP_502_BAD_GATEWAY: "upstream_error",
@@ -118,15 +149,17 @@ def api_exception_handler(exc, context):
     request_id = getattr(request, "request_id", str(uuid4()))
     code = _error_code(exc, response.status_code)
     fields = _flatten_validation(exc.detail) if isinstance(exc, ValidationError) else []
-    response.data = {
-        "error": {
-            "code": code,
-            "message": _ERROR_MESSAGES[code],
-            "fields": fields,
-            "request_id": request_id,
-            "retryable": isinstance(exc, Throttled),
-        }
+    error = {
+        "code": code,
+        "message": _ERROR_MESSAGES[code],
+        "fields": fields,
+        "request_id": request_id,
+        "retryable": isinstance(exc, Throttled) or bool(getattr(exc, "retryable", False)),
     }
+    details = getattr(exc, "details", None)
+    if details is not None:
+        error["details"] = details
+    response.data = {"error": error}
     response["X-Request-ID"] = request_id
     return response
 

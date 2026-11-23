@@ -35,7 +35,7 @@ Workflow step 10, "Evaluate performance: compare with the goal and similar posts
 
 ## Flow
 
-1. E09-S01 stores a `MetricSnapshot` for a publication at a checkpoint.
+1. The operator enters a publication's numbers at a checkpoint (E09-S03, asked for by E09-S04), which stores a `MetricSnapshot`. In Phase 2 the collector (E09-S01) stores the same rows automatically; nothing below changes.
 2. Every 15 minutes `analytics.evaluate_due` finds publications that have a snapshot at an evaluation checkpoint and no `PerformanceEvaluation` for it, and evaluates them (S01).
 3. An evaluation resolves the primary metric, the goal and the baseline, then stores the verdict.
 4. When a final-checkpoint evaluation (`7d`, or `23h` for a story) is `outperforming`, S04 creates a `RepurposeTask` and asks AI for an angle and formats.
@@ -66,8 +66,8 @@ MetricSnapshot ─► PerformanceEvaluation ─┬─► WeeklyReport ─► acc
 
 | Story | Depends on | Needed by |
 | --- | --- | --- |
-| E10-S01 | E09-S01 (snapshots), E08-S03 (publications), E04-S03 (brief `success_metric`), E01-S01 and E01-S02 (goals and slots), E09-S03 (Performance tab and posts table it extends) | E10-S02, E10-S04, E11-S01 |
-| E10-S02 | E10-S01, E09-S02 (follower snapshots), E01-S03 (plan close), E00-S05 (AI gateway), E00-S06 (jobs) | E10-S03, E11-S03 |
+| E10-S01 | E09-S03 (snapshots entered by hand, the Performance tab and posts table it extends), E09-S04 (evaluation checkpoints, skipped rows), E08-S05 (publications marked as published), E04-S03 (brief `success_metric`), E01-S01 and E01-S02 (goals and slots) | E10-S02, E10-S04, E11-S01 |
+| E10-S02 | E10-S01, E09-S03 (follower counts and `follower_change`), E01-S03 (plan close), E00-S05 (AI gateway), E00-S06 (jobs) | E10-S03, E11-S03 |
 | E10-S03 | E10-S02, E01-S01 (plan editor and `PATCH /plans/{id}/`), E01-S03 (duplicate rules) | E11-S03 |
 | E10-S04 | E10-S01, E00-S05, E00-S06 | E03-S02 (repurpose candidates), E03-S03 (marks tasks used), E11-S03 |
 
@@ -75,9 +75,9 @@ MetricSnapshot ─► PerformanceEvaluation ─┬─► WeeklyReport ─► acc
 
 On an account with at least six earlier published reels:
 
-1. A reel's `24h` snapshot produces an evaluation within 15 minutes, with a goal result, a baseline from the earlier reels and a verdict.
+1. A reel's `24h` numbers, entered by hand, produce an evaluation within 15 minutes, with a goal result, a baseline from the earlier reels and a verdict.
 2. A reel whose `7d` evaluation is `outperforming` creates exactly one repurpose task with an angle and formats, and the next ranking shows it as a `repurpose` candidate.
-3. Closing the plan produces a draft weekly report whose totals match a hand calculation from the snapshots, with 3–7 findings that each cite real publications.
+3. Closing the plan produces a draft weekly report whose totals match a hand calculation from the entered snapshots and follower counts, with 3–7 findings that each cite real publications.
 4. After the operator accepts findings and the report, "Apply to next plan" creates next week's draft plan with those findings carried, and applying a goal suggestion in the plan editor changes the draft plan's goal.
 5. An active plan's goals and slots are never changed by any of this without a person's click.
 

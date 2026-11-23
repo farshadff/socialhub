@@ -6,7 +6,7 @@
 | Priority | Must |
 | Estimate | BE 3.5 d · FE 0 d |
 | Depends on | E04-S01, E06-S01, E06-S02 |
-| Needed by | E06-S04, E06-S07, E07-S02, E08-S03 |
+| Needed by | E06-S04, E06-S07, E07-S02, E08-S05 |
 
 ## User story
 

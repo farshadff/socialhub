@@ -1,9 +1,11 @@
 # E08-S03 — Publish worker for each format
 
+> **Phase 2 — not built in Phase 1.** Phase 1 has no Instagram API, so nothing is sent automatically; every publication has `delivery = manual` and the operator posts it from the posting pack and marks it published ([E08-S05](S05-post-by-hand.md)).
+
 | | |
 | --- | --- |
-| Epic | E08 Schedule and publish |
-| Priority | Must |
+| Epic | E08 Schedule and post |
+| Priority | Phase 2 |
 | Estimate | BE 3.5 d · FE 0.5 d · QA 0 d |
 | Depends on | E08-S01, E08-S02, E00-S04, E00-S06, E06-S07 |
 | Needed by | E08-S04, E09-S01, E11-S01 |
@@ -293,7 +295,7 @@ None.
 
 Additions to the Publishing tab of `/content/:id` and the calendar entry drawer (E08-S02).
 
-**Attempts timeline** (`ProCard` "Attempts", below the schedule card; hidden when there are no attempts): an Ant Design `Timeline`, newest first. Each entry shows:
+**Attempts timeline** (`Card` "Attempts", below the schedule card; hidden when there are no attempts): an Ant Design `Timeline`, newest first. Each entry shows:
 
 | Element | Content |
 | --- | --- |

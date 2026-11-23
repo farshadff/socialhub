@@ -1,11 +1,13 @@
-# E08-S04 — Verify before retry, failures and manual fallback
+# E08-S04 — Verify before retry and publish failures
+
+> **Phase 2 — not built in Phase 1.** Phase 1 sends nothing to Instagram, so there is no uncertain send to verify and nothing to retry; the operator posts by hand and pastes the link ([E08-S05](S05-post-by-hand.md)). The manual-delivery rules that used to be here moved to E08-S05; in Phase 2 this story extends that route instead of defining it.
 
 | | |
 | --- | --- |
-| Epic | E08 Schedule and publish |
-| Priority | Must |
+| Epic | E08 Schedule and post |
+| Priority | Phase 2 |
 | Estimate | BE 3 d · FE 1.5 d · QA 0 d |
-| Depends on | E08-S03, E08-S02, E00-S04, E07-S06 |
+| Depends on | E08-S03, E08-S02, E08-S05, E00-S04, E07-S06 |
 | Needed by | E09-S01, E11-S01, E11-S03 |
 
 ## User story
@@ -16,7 +18,7 @@ As an operator, I want the system to check Instagram before it ever sends a post
 
 The workflow says "Verify live posts before retrying". With Meta's container flow (see [INSTAGRAM-INTEGRATION.md](../../INSTAGRAM-INTEGRATION.md) section 5) the dangerous case is a `media_publish` call that times out: the post may be live although the worker saw an error, and publishing again would post it twice. The container makes the check reliable: E08-S03 stores its ID before waiting or publishing, and its `status_code` says whether it was published. Only when the container says `PUBLISHED` (or cannot be read) does the system look for the post in the account's recent media or active stories.
 
-This story makes the rule absolute: no second publish and no new container without first reading the container and, where needed, the account. It also continues the slow-container waits that E08-S03 parks, defines the end of the road (a failed publication and a review task), and the manual route, where a person posts and tells the system.
+This story makes the rule absolute: no second publish and no new container without first reading the container and, where needed, the account. It also continues the slow-container waits that E08-S03 parks, defines the end of the road (a failed publication and a review task), and extends the manual route of E08-S05, where a person posts and tells the system, to failed publications and to a lookup of the posted media on Instagram.
 
 ## Scope
 
@@ -28,8 +30,8 @@ This story makes the rule absolute: no second publish and no new container witho
 - Recovery of publications whose lease expired.
 - Failure: publication and item `failed`, review task `publish_failed`.
 - `POST /publications/{id}/retry/`.
-- Manual delivery: "post by hand", `POST /publications/{id}/mark-published/` with a lookup of the media ID by shortcode.
-- Panel: post-by-hand card, mark-as-published dialog, retry, verifying, processing and failed states.
+- Extensions to E08-S05's manual route: when a publication switches to `delivery = manual`, mark-published for `failed` and `verifying` publications, and a lookup of the media ID by shortcode.
+- Panel: why a publication is posted by hand, retry, verifying, processing and failed states.
 
 **Out (later):**
 
@@ -206,31 +208,22 @@ The container wait settings (`SOCIALHUB_PUBLISH_CONTAINER_RECHECK_SECONDS`, `SOC
 22. The stop switch and connection are checked as in publish-now (E08-S03 rule 28) and return the same errors: `409 publishing_disabled`, `409 instagram_not_connected` or `409 instagram_permission_missing`.
 23. `Idempotency-Key` is honoured.
 
-### Manual delivery
+### Manual route (extends E08-S05)
 
-24. A publication has `delivery = manual` when the account's connection provider is `manual`; when the capability for the format is false, because the connection was not granted `instagram_business_content_publish` or `SOCIALHUB_IG_CAPABILITY_OVERRIDES` turns it off (E08-S01 rule 17, E08-S03 gate 3); or when the provider answered `NotSupported` at send time (E08-S03 rule 25). The dispatcher never claims it. It keeps `status = scheduled` and no new attempts are created.
-25. A manual publication whose `scheduled_at` has passed is **due by hand**. It is not moved by the lateness rule. It appears on the overview attention list as type `publication_due_by_hand` (E11-S01) and is flagged on the calendar.
+E08-S05 defines the posting pack, the due and overdue flags, the accepted link formats and `POST /publications/{id}/mark-published/` for `scheduled` publications. This story extends that route and does not define it again. What used to be here as rules 25 and 28–31 (due by hand, link formats and normalisation, uniqueness, `published_at` limits) is now E08-S05 rules 4–13.
+
+24. A publication has `delivery = manual` when the account's connection provider is `manual`; when the capability for the format is false, because the connection was not granted `instagram_business_content_publish` or `SOCIALHUB_IG_CAPABILITY_OVERRIDES` turns it off (E08-S01 Later, E08-S03 gate 3); or when the provider answered `NotSupported` at send time (E08-S03 rule 25). The dispatcher never claims it. It keeps `status = scheduled`, no new attempts are created, and from then on it follows E08-S05.
+25. Moved to E08-S05 rules 4–8 (due and overdue).
 26. The stop switch does not apply to manual delivery: a person is posting, the system sends nothing.
-27. `POST /publications/{id}/mark-published/` records a post made by hand. It is allowed for `status` `scheduled`, `failed`, or `verifying` without an active lease, for either delivery mode (an operator may post by hand after a failure, or finish a post that Instagram reports as live but the lookup could not match).
-28. `permalink` is required and must be an Instagram link to one post:
-
-    | Format | Accepted paths on `instagram.com` or `www.instagram.com` (https only; query string and trailing slash ignored) |
-    | --- | --- |
-    | `feed_post` | `/p/{code}/` and `/{username}/p/{code}/` |
-    | `reel` | `/reel/{code}/`, `/reels/{code}/`, `/{username}/reel/{code}/`, and `/p/{code}/` |
-    | `story` | `/stories/{username}/{story_id}/` |
-
-    `code` matches `[A-Za-z0-9_-]{5,40}`; `story_id` is digits. When a username is present it must equal the account's handle, case-insensitive. A link that fails returns `400 validation_error` on `permalink` with code `invalid`, or code `wrong_account` for a handle mismatch.
-29. For feed posts and reels, `remote_shortcode` is the code from the link; stories have no shortcode. The stored `permalink` is normalized to `https://www.instagram.com/p/{code}/`, `…/reel/{code}/` or the story link. The Graph API media ID cannot be derived from the link, so `remote_media_id` is filled only by the lookup of rule 32 and otherwise stays null.
-30. A permalink whose normalized form or shortcode is already stored on another publication returns `400 validation_error` on `permalink` with code `unique`.
-31. `published_at` is optional. Default is now. It may not be in the future and may not be more than 30 days in the past.
-32. `verify` is optional, default `true`. When true, the connection is `connected` or `expiring`, and its provider is `graph_api` or `fake`, the service looks the post up under `account_session(account, wait_seconds=10)`:
+27. In Phase 2 `mark-published` is also allowed for `status` `failed`, or `verifying` without an active lease, for either delivery mode (an operator may post by hand after a failure, or finish a post that Instagram reports as live but the lookup could not match). `allowed_actions` lists `mark_published` in those states. A publication being sent or verified returns `409 job_in_progress`.
+28. Moved to E08-S05 rules 10–13 (link formats, normalisation, uniqueness, `published_at` limits); rules 29–31 are retired with it. The Graph API media ID cannot be derived from the link, so `remote_media_id` is filled only by the lookup of rule 32.
+32. `verify` is an optional request field, default `true`. When true, the connection is `connected` or `expiring`, and its provider is `graph_api` or `fake`, the service looks the post up under `account_session(account, wait_seconds=10)`:
     - Feed posts and reels: `list_recent_media(token, since=published_at - 24 hours, limit=50)`; the match is the item whose `shortcode` equals the link's code.
     - Stories: `list_active_stories(token)`; the match is the only story of the version's media kind whose `timestamp` is within 30 minutes of `published_at` and whose `id` is not linked to another publication.
 
-    A match sets `remote_media_id`, replaces `published_at` with the real `timestamp`, and takes `permalink` from Instagram when present. No match leaves `remote_media_id` null: the operator's statement stands, and the response says `found: false` so the panel can warn. Without a media ID, provider metric collection (E09-S01) has nothing to read, and the post's metrics are entered by hand (E09-S03). `AccountBusy` or any provider error makes the lookup `checked: false` without failing the request; `TokenInvalid` and `PermissionMissing` also go to `report_connection_error`.
-33. Effects: `status = published`, `published_via = manual`, `blocked_reason`, `next_attempt_at` and lease cleared; slot and item become `published` (item from `scheduled`, `failed` or `publishing`); metric hand-over as in rule 34; open `publish_failed` review task resolved with `decision = approve` and note "Marked as published by {user}"; `ContentEvent` of type `publish_attempt` with `data.via = "manual"`. No `PublishAttempt` row is written; an open parked attempt is closed with `outcome = verified_live`.
-34. **Metric hand-over for a back-dated post.** `published_at` may be up to 30 days ago, so some checkpoints of the format may already have passed. The hand-over applies E09-S01's rules at once instead of leaving them for the collector: every non-final checkpoint already past its skip age (E09-S01 rule 2) gets a `MetricSnapshot` row with `status = skipped`, `skip_reason = missed`; `next_metrics_checkpoint` is the first remaining checkpoint and `next_metrics_at = max(now, published_at + its age)`. When only the final checkpoint remains and it is already due, `next_metrics_at = now`, so the collector captures it on its next cycle (E09-S01 rule 3) or records `gave_up` if the give-up age has passed. No pointer is ever left in the past, so the overview raises no `metrics_sync_gap` for a back-dated post. A post marked published at the current time simply gets the first checkpoint (`1h`).
+    A match sets `remote_media_id`, replaces `published_at` with the real `timestamp`, and takes `permalink` from Instagram when present. No match leaves `remote_media_id` null: the operator's statement stands, and the response says `found: false` so the panel can warn. Without a media ID, provider metric collection (E09-S01) has nothing to read, and the post's metrics are entered by hand (E09-S03, E09-S04). `AccountBusy` or any provider error makes the lookup `checked: false` without failing the request; `TokenInvalid` and `PermissionMissing` also go to `report_connection_error`.
+33. Effects, in addition to those of E08-S05 rule 14: `blocked_reason`, `next_attempt_at` and lease cleared; the item may also move from `failed` or `publishing`; an open `publish_failed` review task is resolved with `decision = approve` and note "Marked as published by {user}"; an open parked attempt is closed with `outcome = verified_live`. No `PublishAttempt` row is written.
+34. **Metric hand-over when the lookup found the media ID.** Provider collection then applies, so E09-S01's rules replace the E09-S04 pointer of E08-S05 rule 14. `published_at` may lie up to 7 days before `scheduled_at` (E08-S05 rule 13), so some checkpoints of the format may already have passed. The hand-over applies E09-S01's rules at once instead of leaving them for the collector: every non-final checkpoint already past its skip age (E09-S01 rule 2) gets a `MetricSnapshot` row with `status = skipped`, `skip_reason = missed`; `next_metrics_checkpoint` is the first remaining checkpoint and `next_metrics_at = max(now, published_at + its age)`. When only the final checkpoint remains and it is already due, `next_metrics_at = now`, so the collector captures it on its next cycle (E09-S01 rule 3) or records `gave_up` if the give-up age has passed. No pointer is ever left in the past, so the overview raises no `metrics_sync_gap` for a back-dated post. A post marked published at the current time simply gets the first checkpoint (`1h`).
 
 ## Data
 
@@ -279,9 +272,9 @@ Response `200`: the publication as in `GET /publications/{id}/`.
 | Connection lacks a permission | `409 instagram_permission_missing` |
 | Not found | `404 not_found` |
 
-### `POST /publications/{id}/mark-published/`
+### `POST /publications/{id}/mark-published/` — Phase 2 additions
 
-Permission: signed in. Request:
+The endpoint, its request, its validation and its errors are defined in E08-S05. Phase 2 adds the optional `verify` field (rule 32), the `failed` and `verifying` starting states (rule 27), and a `verification` object in the response. Request:
 
 ```json
 {
@@ -291,25 +284,23 @@ Permission: signed in. Request:
 }
 ```
 
-Response `200`:
+Response `200`: the publication object of E08-S05 with `remote_media_id` filled by the lookup and the added `verification` object:
 
 ```json
 {
-  "publication": {
-    "id": 31,
-    "status": "published",
-    "delivery": "manual",
-    "published_via": "manual",
-    "permalink": "https://www.instagram.com/reel/DC0aBcDeFgH/",
-    "remote_shortcode": "DC0aBcDeFgH",
-    "remote_media_id": "18052233445566778",
-    "published_at": "2026-11-23T15:40:12Z",
-    "next_metrics_checkpoint": "1h",
-    "next_metrics_at": "2026-11-23T16:40:12Z",
-    "allowed_actions": [],
-    "…": "remaining fields as in GET /publications/{id}/"
-  },
-  "verification": {"checked": true, "found": true, "remote_media_id": "18052233445566778", "timestamp": "2026-11-23T15:40:12Z"}
+  "id": 31,
+  "status": "published",
+  "delivery": "manual",
+  "published_via": "manual",
+  "permalink": "https://www.instagram.com/reel/DC0aBcDeFgH/",
+  "remote_shortcode": "DC0aBcDeFgH",
+  "remote_media_id": "18052233445566778",
+  "published_at": "2026-11-23T15:40:12Z",
+  "next_metrics_checkpoint": "1h",
+  "next_metrics_at": "2026-11-23T16:40:12Z",
+  "allowed_actions": [],
+  "verification": {"checked": true, "found": true, "remote_media_id": "18052233445566778", "timestamp": "2026-11-23T15:40:12Z"},
+  "…": "remaining fields as in GET /publications/{id}/"
 }
 ```
 
@@ -317,10 +308,7 @@ When the lookup could not be made (manual provider, connection not usable, accou
 
 | Case | Response |
 | --- | --- |
-| `permalink` missing, not https, not an Instagram post link, or wrong link type for the format | `400 validation_error`, field `permalink`, code `invalid` |
-| Link belongs to another handle | `400 validation_error`, field `permalink`, code `wrong_account` |
-| Link already recorded on another publication | `400 validation_error`, field `permalink`, code `unique` |
-| `published_at` in the future or older than 30 days | `400 validation_error`, field `published_at`, code `max_value` or `min_value` |
+| Validation errors on `permalink` and `published_at` | As in E08-S05 |
 | Being sent or verified right now | `409 job_in_progress`, `details.job` |
 | Already published or cancelled | `409 invalid_transition` |
 
@@ -350,35 +338,16 @@ None.
 
 Additions to the Publishing tab of `/content/:id`, the calendar drawer and the calendar cards.
 
-### Post by hand
+### Post by hand (additions to E08-S05's card)
 
-Shown when `delivery = manual` and the status is `scheduled`, as a `ProCard` titled "Post by hand" with an info `Alert` whose text depends on why (the panel reads the account's connection from `GET /accounts/{id}/connection/`):
+The card itself (downloads, caption, checklist, due and overdue alerts) and the calendar flags are defined in E08-S05 and E08-S02. In Phase 2 the card's alert also says why the publication is posted by hand (the panel reads the account's connection from `GET /accounts/{id}/connection/`):
 
 - Connection provider `manual`: "This account is posted by hand. Post the file below on Instagram, then paste the link here."
 - A publish capability is false: "Instagram has not given Social Hub permission to publish {format}s for this account, so this one is posted by hand. Post the file below, then paste the link here." Admins also see a link "Check the connection" to Settings → Connection.
 
-When the scheduled time has passed, the alert is a warning that starts with "Due since {time}."
+### Mark as published (additions to E08-S05's dialog)
 
-| Element | Behaviour |
-| --- | --- |
-| "Download video" / "Download image" | Downloads the final asset with a readable file name (`{handle}-{format}-{item id}.{ext}`) |
-| "Download cover" | Reels with a cover asset only |
-| Caption box | `full_caption` through `ContentText`, read-only, with "Copy caption". Hidden for stories |
-| Checklist | Three plain lines: "1. Post it on @handle as a {format}." "2. Open the post and copy its link." "3. Paste the link below." |
-| "Mark as published" | Opens the dialog below |
-
-Calendar cards and list rows show the tag "Post by hand"; when due, the tag is in warning colour and reads "Post by hand — due".
-
-### Mark as published
-
-`ModalForm` titled "Mark as published". Also reachable from a failed publication ("I posted it myself") and from a `verifying` publication whose container reads `PUBLISHED`.
-
-| Field | Control | Rules |
-| --- | --- | --- |
-| Link to the post | `Input`, placeholder `https://www.instagram.com/reel/…` | Required. Client-side check that it starts with `https://www.instagram.com/` or `https://instagram.com/` |
-| Posted at | Date-time picker in account timezone, default now | Not in the future |
-
-Submit button "Mark as published". Field error texts: `invalid` → "This does not look like a link to a single Instagram {format}."; `wrong_account` → "This link belongs to another account."; `unique` → "This post is already recorded for another item." After success: `message.success("Marked as published")`; when the response has `verification.checked = true` and `found = false`, a `notification.warning`: "Saved, but the post was not found on the account. Metrics for it will need to be entered by hand."
+The dialog, its fields and its error texts are defined in E08-S05. In Phase 2 it is also reachable from a failed publication ("I posted it myself") and from a `verifying` publication whose container reads `PUBLISHED`. After success, when the response has `verification.checked = true` and `found = false`, a `notification.warning`: "Saved, but the post was not found on the account. Metrics for it will need to be entered by hand."
 
 ### Retrying, verifying, processing and failed
 
@@ -413,7 +382,7 @@ Timeline labels added to the map of E08-S03: `ambiguous` + `timeout` → "No ans
 12. Given a parked reel whose container stays `IN_PROGRESS` for 16 minutes (`container_slow`), then the attempt closes with `container_timeout`, the publication is `failed` with the container-timeout detail, and no second container was created.
 13. Given an account on the `manual` provider and a due publication, then the dispatcher never claims it, the calendar shows "Post by hand — due", and the tab offers the asset download and caption copy; given a `graph_api` account whose `publish_story` capability is false, then a story publication shows the permission text instead.
 14. Given a manual reel publication on a connected `graph_api` account, when `mark-published` is called with `https://www.instagram.com/reel/DC0aBcDeFgH/?igsh=x` and the post is in the recent media, then the publication is `published` with `published_via = manual`, the stored permalink has no query string, `remote_shortcode` is `DC0aBcDeFgH`, `remote_media_id` comes from the media list, `published_at` is Instagram's timestamp, and `next_metrics_checkpoint` is `1h`.
-15. Given a link to another handle's story, a profile link, or a link already used, then `mark-published` returns `400` with the matching field code and nothing changes.
+15. Moved to E08-S05 (acceptance criteria 8–10).
 16. Given `mark-published` with `verify = true` on a connected account where the shortcode is not listed, then the response is `200` with `verification.found = false`, `remote_media_id` stays null, and the panel shows the warning.
 17. Given a `publish_failed` review task resolved with `request_changes`, then `on_review_decision` cancels the publication, the slot is `reserved`, and the item moves `failed → needs_revision`; resolved with `reject`, the publication and item are `cancelled` and the slot is released; resolved with `approve` after a `fatal_error` on an unchanged version, the request fails with `409 invalid_transition` and `details.reason = "version_rejected"`.
 18. Given a feed post marked published with `published_at` 50 hours ago, then `1h`, `6h` and `24h` are recorded `skipped` with reason `missed`, and `next_metrics_checkpoint` is `72h` at `published_at + 72 h`.
@@ -427,7 +396,7 @@ Timeline labels added to the map of E08-S03: `ambiguous` + `timeout` → "No ans
 | E08-S04-BE1 | Verification service | `apps/publishing/services/verification.py`: container-first reading with the six results, window, fingerprint matching on `list_recent_media`, story matching on `list_active_stories` with `pre_story_ids`, time-window matching, exclusion of already-linked media, `unknown` handling, `verification.checks` log; unit tests with fake containers and media lists | 0.75 d |
 | E08-S04-BE2 | Retry state machine | `services/recovery.py::after_attempt`, `tasks.py::verify` with parked attempts and `continue_attempt`, container wait limit, live-unmatched lookup, known-media-ID read-back, dispatcher branch for `verifying` with the connection check, backoff schedule, final check, pre-send check inside the send task, failure transaction and review task creation or reuse | 0.75 d |
 | E08-S04-BE3 | Expired-lease sweep | Dispatcher step for `publishing` and `verifying` rows with expired leases; closing the open attempt; tests that kill a send before and after `publish_container` | 0.25 d |
-| E08-S04-BE4 | Manual delivery and mark-published | Dispatcher exclusion and due-by-hand flag in serializers; permalink parser and normalizer per format; media ID lookup by shortcode through `list_recent_media` and by time through `list_active_stories`; uniqueness check; effects of rule 33; endpoint, `openapi.yaml`, API tests for every row of the error table | 0.75 d |
+| E08-S04-BE4 | Manual-route extensions | Dispatcher exclusion of `delivery = manual`; `mark-published` from `failed` and `verifying` (rule 27, `allowed_actions`, `job_in_progress`); media ID lookup by shortcode through `list_recent_media` and by time through `list_active_stories` with the `verify` flag and the `verification` response (rule 32); effects of rule 33; `openapi.yaml`; API tests. The base endpoint, link parser and uniqueness are E08-S05 | 0.75 d |
 | E08-S04-BE5 | Retry endpoint and review hooks | `POST /publications/{id}/retry/` with gates, `version_rejected` and `already_live` rules, idempotency key, review-task resolution; `recovery.on_review_decision(task, decision)` called by E07-S06 for `approve`, `request_changes`, `reject` on `publish_failed` tasks (rule 17 table); back-dated metric hand-over of rule 34 | 0.25 d |
 | E08-S04-BE6 | Failure-injection tests | Scenario tests with the fake provider: `timeout_after_publish`, `timeout_before_publish`, `fail_n_times(3)`, `appears_late`, `story_timeout_after_publish`, `media_rejected`, `container_expired`, `container_slow`, and `token_invalid` scripted on `container_status` during verification; assert container counts, publish counts and final states | 0.25 d |
 
@@ -435,7 +404,7 @@ Timeline labels added to the map of E08-S03: `ambiguous` + `timeout` → "No ans
 
 | ID | Task | Detail | Est. |
 | --- | --- | --- | --- |
-| E08-S04-FE1 | Post by hand and mark as published | `PostByHandCard` (downloads, caption copy, checklist, due state, reason text by provider or capability); `MarkPublishedModal` with validation, error texts and the not-found warning; calendar tags | 0.75 d |
+| E08-S04-FE1 | Manual-route additions | Reason text by provider or capability on E08-S05's `PostingPackCard` with the admin link; "I posted it myself" on the failed card and "I have the link" on a verifying publication, both opening E08-S05's `MarkPublishedModal`; the not-found warning after a lookup; tests | 0.75 d |
 | E08-S04-FE2 | Retry, verifying, processing, failed | State alerts including processing and live-but-unmatched, failed `Result` card with actions, retry confirmation and error texts, verification lines and new labels in the attempts timeline, calendar "Retry n of 3", "Processing" and "Verifying" tags | 0.5 d |
 | E08-S04-FE3 | Shared wiring | Extend the shared publication actions component and `src/services/publishing.ts` with `retry` and `markPublished`; conflict handling; unit tests for label maps | 0.25 d |
 
@@ -448,9 +417,9 @@ None beyond the tests inside each subtask.
 - The fake provider (E00-S04) keeps an in-memory remote account per account (containers with their status, posts, active stories, call counts), so tests can assert how many containers and posts exist. Scenarios used: `timeout_after_publish` (container `PUBLISHED`, `AmbiguousResult`), `timeout_before_publish` (container still `FINISHED`, `AmbiguousResult`), `story_timeout_after_publish`, `fail_n_times(n)`, `appears_late` (`delay_seconds`), `container_slow` (`delay_seconds`), `container_expired`, `media_rejected`, `token_invalid`; `FakeProvider.script([...])` scripts a single method, for example `TokenInvalid` from `container_status` during one verification.
 - Every scenario test asserts four things: final statuses, number of `create_container` calls, number of `publish_container` calls, number of remote posts. The last three are the duplicate guard.
 - Use a fixed clock and advance it between dispatcher runs to walk through the backoff schedule, container waits and the 30-minute lookup without sleeping.
-- Permalink parser: a table test with valid and invalid links per format, including mobile share links with query strings, links with a username prefix, upper- and lower-case handles, and non-Instagram hosts.
+- Permalink parser tests moved to E08-S05.
 - Mark-published lookup: a shortcode on the second page of recent media is not found with `limit=50` and returns `found: false`; a story within 30 minutes is found; two stories within 30 minutes give `found: false`.
-- Panel tests: the post-by-hand card renders the right download buttons per format and the right reason text; the mark-as-published form maps each field code to its text; the failed card shows only allowed actions; the processing alert appears only for a parked attempt.
+- Panel tests: the post-by-hand card shows the right reason text; the failed card shows only allowed actions; the processing alert appears only for a parked attempt.
 
 ## Later
 

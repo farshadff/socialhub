@@ -1,0 +1,6 @@
+{
+  "signals": [
+    {"url": "https://example.com/fake-result-1", "title": "Why filter coffee is back on café menus", "excerpt": "Cafés report rising orders for batch brew and pour-over.", "author": "Example Coffee News", "published_at": "2026-11-20", "relevance": 88},
+    {"url": "https://example.org/never-retrieved", "title": "A page the search never returned", "excerpt": "This URL is not among the search results and must be dropped.", "author": "Example Org", "published_at": null, "relevance": 90}
+  ]
+}

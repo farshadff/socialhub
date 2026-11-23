@@ -5,8 +5,8 @@
 | Epic | E00 Foundation |
 | Priority | Must |
 | Estimate | BE 2 d · FE 1 d · QA 0 d |
-| Depends on | E00-S01 (signed-in user, permission classes); E00-S02 for the panel components (TanStack Query provider, `StatusTag`, `errorText`) |
-| Needed by | Every endpoint that returns a job (first E00-S04, E00-S05), E00-S03 logo uploads (storage), E06-S01 uploads (validation and storage), every worker that reads media (E06, E07, E08) |
+| Depends on | E00-S01 (signed-in user, permission classes); E00-S02 for the panel components (Refine data provider and query client options, `StatusTag`, `errorText`) |
+| Needed by | Every endpoint that returns a job (first E00-S05), E00-S03 logo uploads (storage), E06-S01 uploads (validation and storage), every worker that reads media (E06, E07), the posting pack download links (E08-S05) |
 
 ## User story
 
@@ -14,20 +14,20 @@ As a developer building a workflow step, I want one way to start background work
 
 ## Context
 
-Almost every step of the workflow is too slow for a request: research, AI writing, rendering, checks, publishing, metric collection. [ARCHITECTURE.md](../../ARCHITECTURE.md) section 4 fixes the pattern: the API creates a `JobRun`, enqueues a Celery task with the job ID and returns `202`; the task reports progress; the panel polls `GET /jobs/{id}/`. This story builds that pattern once so later stories only register a job kind and write the task body.
+Almost every step of the workflow is too slow for a request: research, AI writing, rendering, checks, evaluation. [ARCHITECTURE.md](../../ARCHITECTURE.md) section 4 fixes the pattern: the API creates a `JobRun`, enqueues a Celery task with the job ID and returns `202`; the task reports progress; the panel polls `GET /jobs/{id}/`. This story builds that pattern once so later stories only register a job kind and write the task body.
 
 The scaffold already runs Celery with Redis (`worker`, `render-worker`, `scheduler` in `compose.yaml`) and has one smoke task, `core.ping`. The `worker` service consumes Celery's default queue `celery`; the `render-worker` consumes `render`. Nothing records job state yet.
 
-Files are the second shared need. Logos (E00-S03), uploads and rendered output (E06) and the files the publisher sends (E08) all go through one storage layer that works on a local volume in development and on an S3-compatible bucket when hosted. This story adds that layer, the storage key scheme from ARCHITECTURE.md section 6, signed URLs, a helper that gives workers a local file path, and the upload validation helper E06-S01 reuses.
+Files are the second shared need. Logos (E00-S03), uploads and rendered output (E06) and the files the operator downloads from the posting pack (E08-S05) all go through one storage layer that works on a local volume in development and on an S3-compatible bucket when hosted. This story adds that layer, the storage key scheme from ARCHITECTURE.md section 6, signed URLs, a helper that gives workers a local file path, and the upload validation helper E06-S01 reuses.
 
-The scaffold's provider guard in `backend/config/settings.py` is removed by E00-S04 (publisher) and E00-S05 (source and model providers). This story does not touch it; it adds Celery and storage settings beside it, so it can land before or after those stories.
+The scaffold's provider and publisher guard in `backend/config/settings.py` is removed by E00-S05. This story does not touch it; it adds Celery and storage settings beside it, so it can land before or after those stories.
 
 ## Scope
 
 **In**
 
 - `JobRun` model, a job-kind registry and the `core.jobs` service: `start_job`, the `job_task` decorator with `JobContext`, conflict rules, `active_job` bookkeeping on targets, `cancel_queued_job`.
-- Celery configuration: queues `default`, `render`, `publish`, routing, acknowledgement and time-limit settings; `compose.yaml` queue flags.
+- Celery configuration: queues `default` and `render`, routing, acknowledgement and time-limit settings; `compose.yaml` queue flags.
 - Stale-job sweeper on Celery Beat.
 - `GET /jobs/{id}/`, `GET /jobs/`, and the shared `JobSummary` shape other resources embed as `active_job`.
 - Media storage: `SOCIALHUB_MEDIA_BACKEND` (`local` or `s3`), key helpers, `media_url`, `local_copy` and `work_dir`, `validate_upload` with type profiles, the `storage` block of `GET /system/status/`.
@@ -50,12 +50,12 @@ The scaffold's provider guard in `backend/config/settings.py` is removed by E00-
    | --- | --- |
    | `kind` | Dotted name stored in `JobRun.kind`, for example `brief.generate` |
    | `task` | Celery task name, for example `content.brief_generate` |
-   | `queue` | `default`, `render` or `publish` |
+   | `queue` | `default` or `render` |
    | `timeout_seconds` | Soft time limit and the stale threshold (rule 17) |
-   | `target_type` | The kind of record the job works on, for example `content_item`, `account_connection`, `plan`, `system` |
+   | `target_type` | The kind of record the job works on, for example `content_item`, `plan`, `system` |
    | `conflicts_with` | Other kinds that may not run at the same time on the same target. The kind always conflicts with itself. |
 
-   Example used by E00-S04: `instagram.verify` and `instagram.refresh_token` list each other in `conflicts_with`.
+   Example: two kinds that both rewrite the same record list each other in `conflicts_with`, so only one of them runs on that record at a time.
 2. The default timeout when a story does not set one is 1,800 s (30 minutes) on every queue. Owning stories register these kinds with these timeouts, which this story's tests assert:
 
    | Kind | Timeout |
@@ -64,7 +64,6 @@ The scaffold's provider guard in `backend/config/settings.py` is removed by E00-
    | `production.render` | 30 min |
    | `qc.run` | 15 min |
    | `qc.revise` | 60 min |
-   | `publish.send`, `publish.verify` | 20 min |
 
    `SOCIALHUB_JOB_TIMEOUT_OVERRIDES` (JSON map of kind to seconds) overrides any of them without a code change. The broker visibility timeout (rule 24, 7,200 s) stays longer than the longest limit.
 3. A Django system check fails at startup when a registered kind names an unknown Celery task or queue, or when two registrations use the same kind.
@@ -78,7 +77,7 @@ The scaffold's provider guard in `backend/config/settings.py` is removed by E00-
    3. creates the `JobRun` with status `queued`, `queue`, `request_id`, `created_by` and `celery_task_id` equal to the job ID;
    4. sets `active_job` on the target when the target is registered with one (rule 4);
    5. enqueues the task after the transaction commits (`transaction.on_commit`) with `apply_async(args=[str(job.id)], kwargs=payload or {}, queue=queue, task_id=str(job.id), soft_time_limit=timeout, time_limit=timeout + 60)`.
-6. `payload` holds task arguments that are not on the target (for example `{"feedback": "Shorter hook"}`). It must be JSON-serialisable and is limited to 16 KB. Secrets never go in `payload`; Instagram access tokens stay encrypted on `AccountConnection`, and tasks read them through E00-S04's `account_session`.
+6. `payload` holds task arguments that are not on the target (for example `{"feedback": "Shorter hook"}`). It must be JSON-serialisable and is limited to 16 KB. Secrets never go in `payload`.
 7. The API layer maps `JobInProgress` to `409` with code `job_in_progress` and the active job, serialised as in rule 22, in `error.details.job`. This replaces the `409 state_conflict` wording in API.md's "Long actions" paragraph.
 8. If enqueueing fails after commit (broker down), the job is marked `failed` with `error_code = enqueue_failed`, `active_job` is cleared, and the error is logged with the job ID. The API response has already been sent as `202`, so the panel sees the failure on its first poll.
 9. A partial unique index on (`target_type`, `target_id`, `kind`) where status is `queued` or `running` backs up rule 5 at the database level for the same kind.
@@ -105,7 +104,6 @@ The scaffold's provider guard in `backend/config/settings.py` is removed by E00-
     | --- | --- | --- |
     | `JobError(code, detail)` raised by the body | `code` | `detail` |
     | `AIError` from the gateway (E00-S05) | its `code` | its detail, for example `refused` |
-    | Instagram provider errors (E00-S04) | the code that story assigns | its safe text |
     | Celery `SoftTimeLimitExceeded` | `timeout` | "The task took longer than {n} minutes." |
     | Celery `Retry` | not a failure; status stays `running`, `message` becomes "Retrying ({n} of {max})" | — |
     | Any other exception | `server_error` | "Unexpected error. Reference: {job id}." The traceback goes to the log and the error tracker only. |
@@ -119,8 +117,8 @@ The scaffold's provider guard in `backend/config/settings.py` is removed by E00-
     - `running` jobs whose `deadline_at` is more than 120 seconds in the past (the hard time limit is 60 s after the soft one, so a live task would already have stopped);
     - `queued` jobs older than 6 hours, with `error_detail` "The task never started. A worker may be down." The limit is long because the `render` queue runs one job at a time and a busy week can queue renders for a while.
     It clears `active_job` and sends `job_finished` for each, through the same code as rule 16. It processes at most 500 jobs per run and is safe to run twice.
-17a. Celery Beat runs `core.prune_jobs` daily at 03:15 UTC. It deletes jobs started by the system (`created_by` is null) whose kind is registered with `prunable=True` (for example `feeds.sync`, `instagram.verify`): succeeded jobs older than 7 days and failed or cancelled ones older than 30 days. Jobs referenced by another row (`AIRun.job`, `ResearchRun.job`, `QCRun.job`) or still set as an `active_job` are skipped. At most 5,000 rows per run; idempotent.
-18. `cancel_queued_job(job, reason)` cancels a `queued` job: status `cancelled`, `error_detail` = reason, `finished_at`, revokes the Celery task ID, clears `active_job`. A `running` job cannot be cancelled in the MVP; the function returns False. Other stories use it, for example when an item is cancelled (E03-S04) or a connection is removed (E00-S04). There is no cancel endpoint.
+17a. Celery Beat runs `core.prune_jobs` daily at 03:15 UTC. It deletes jobs started by the system (`created_by` is null) whose kind is registered with `prunable=True` (for example `feeds.sync`): succeeded jobs older than 7 days and failed or cancelled ones older than 30 days. Jobs referenced by another row (`AIRun.job`, `ResearchRun.job`, `QCRun.job`) or still set as an `active_job` are skipped. At most 5,000 rows per run; idempotent.
+18. `cancel_queued_job(job, reason)` cancels a `queued` job: status `cancelled`, `error_detail` = reason, `finished_at`, revokes the Celery task ID, clears `active_job`. A `running` job cannot be cancelled in the MVP; the function returns False. Other stories use it, for example when an item is cancelled (E03-S04). There is no cancel endpoint.
 
 ### Reading jobs
 
@@ -128,7 +126,7 @@ The scaffold's provider guard in `backend/config/settings.py` is removed by E00-
 20. `GET /jobs/` requires `account` for operators. Admins may omit it to list across accounts, or send `account=none` for system jobs only.
 21. Filters: `account`, `kind` (comma-separated exact values), `kind_prefix` (for example `production.`), `status` (comma-separated), `target_type`, `target_id`, `created_after`, `created_before`. Ordering: `created_at`, `-created_at` (default), `finished_at`, `-finished_at`. Standard paging.
 22. The full job shape is the one in [API.md](../../API.md) "Long actions" plus `account`, `queue`, `created_by` and `request_id`. `JobSummary`, embedded by other resources as `active_job`, is `{id, kind, status, progress, message}`.
-23. Resources with an `active_job` field serialise it as a `JobSummary` or `null`. Resources without one that still show running work (the connection in E00-S04, the AI test in E00-S05) compute it with `core.jobs.active_job_for(target_type, target_id, kinds)`. The panel never has to guess whether something is running.
+23. Resources with an `active_job` field serialise it as a `JobSummary` or `null`. Resources without one that still show running work (for example the AI test in E00-S05) compute it with `core.jobs.active_job_for(target_type, target_id, kinds)`. The panel never has to guess whether something is running.
 
 ### Celery configuration
 
@@ -137,15 +135,15 @@ The scaffold's provider guard in `backend/config/settings.py` is removed by E00-
     | Setting | Value |
     | --- | --- |
     | `CELERY_TASK_DEFAULT_QUEUE` | `default` |
-    | `CELERY_TASK_QUEUES` | `default`, `render`, `publish` |
-    | `CELERY_TASK_ROUTES` | Only browser and FFmpeg work goes to `render`: `production.tasks.render_*`, `production.tasks.export_*`, `production.tasks.assemble_*`, `production.tasks.normalise_*`. `publishing.*` → `publish`. Everything else → `default`, including AI steps such as `production.tasks.generate_copy` and `production.tasks.generate_frame_image`. Job tasks are also routed explicitly by `start_job` (rule 5) and by each step of a chain (E06-S07); the routes cover Beat and internal tasks. |
+    | `CELERY_TASK_QUEUES` | `default`, `render` |
+    | `CELERY_TASK_ROUTES` | Only browser and FFmpeg work goes to `render`: `production.tasks.render_*`, `production.tasks.export_*`, `production.tasks.assemble_*`, `production.tasks.normalise_*`. Everything else → `default`, including AI steps such as `production.tasks.generate_copy` and `production.tasks.generate_frame_image`. Job tasks are also routed explicitly by `start_job` (rule 5) and by each step of a chain (E06-S07); the routes cover Beat and internal tasks. |
     | `CELERY_TASK_ACKS_LATE` | `True` |
     | `CELERY_TASK_REJECT_ON_WORKER_LOST` | `True` |
     | `CELERY_WORKER_PREFETCH_MULTIPLIER` | `1` |
     | `CELERY_BROKER_TRANSPORT_OPTIONS` | `{"visibility_timeout": 7200}` — longer than the longest time limit, so a long render is not redelivered while still running |
     | `CELERY_TASK_IGNORE_RESULT` | `True` — state lives in `JobRun`, not in a result backend |
 
-25. `compose.yaml`: the `worker` command gains `--queues=default,publish`; `render-worker` keeps `--queues=render --concurrency=1`. The existing `core.ping` task moves to the `default` queue.
+25. `compose.yaml`: the `worker` command gains `--queues=default`; `render-worker` keeps `--queues=render --concurrency=1`. The existing `core.ping` task moves to the `default` queue.
 
 ### Media storage
 
@@ -153,8 +151,8 @@ The scaffold's provider guard in `backend/config/settings.py` is removed by E00-
 
     | Value | Storage | Use |
     | --- | --- | --- |
-    | `local` (default) | `FileSystemStorage` at `MEDIA_ROOT` (the `media_data` volume) | Local development and automated tests. Files are served by Django at `/media/` only when `DEBUG` is true. Meta cannot fetch these files, so real Instagram publishing from a laptop needs an `s3` bucket (rule 30). |
-    | `s3` | `storages.backends.s3.S3Storage` from `django-storages` (pinned in `requirements.lock`) | Every hosted environment. Works with AWS S3, MinIO, Cloudflare R2 and other S3-compatible services. For Instagram publishing the endpoint must be reachable from the internet over HTTPS (rule 30). |
+    | `local` (default) | `FileSystemStorage` at `MEDIA_ROOT` (the `media_data` volume) | Local development and automated tests. Files are served by Django at `/media/` only when `DEBUG` is true. |
+    | `s3` | `storages.backends.s3.S3Storage` from `django-storages` (pinned in `requirements.lock`) | Every hosted environment. Works with AWS S3, MinIO, Cloudflare R2 and other S3-compatible services. The bucket stays private; the API and workers reach it with the access key, and operators' browsers load files through presigned URLs, so its endpoint must be reachable from where operators work. |
 
     Startup fails with a clear message when `DEBUG` is false and the backend is `local`, because local media has no access control.
 27. Settings for `s3`:
@@ -180,16 +178,12 @@ The scaffold's provider guard in `backend/config/settings.py` is removed by E00-
     `slug` is the ASCII slug of the filename stem, at most 40 characters; a stem with no ASCII letters or digits (for example a Persian filename) becomes `file`. `ext` is the lowercase extension from the validated type (rule 33), not the uploaded name. `yyyy/mm` comes from `at` in UTC. Because the key contains the asset ID, an asset row is created first and its file saved second, inside one transaction; if the file save fails, the row is rolled back.
 30. `media_url(file_or_key, *, ttl=None) -> str` returns a URL the browser can load: for `local`, `SOCIALHUB_MEDIA_BASE_URL` + key; for `s3` with a public base URL, that base + key; otherwise a presigned GET URL valid for `ttl` (default `SOCIALHUB_MEDIA_URL_TTL_SECONDS`). Serializers use the `MediaURLField` that calls it.
 
-    **URLs for Meta.** Instagram publishing does not upload files: Meta's servers download each file from a URL Social Hub hands over. `apps.instagram.media.public_url(asset)` (E00-S04) calls `media_url` with `ttl=SOCIALHUB_IG_MEDIA_URL_TTL_SECONDS` (default 7,200 s, separate from the six-hour panel TTL) for the final asset and the reel cover. So, in every hosted environment:
-    - the bucket's endpoint is reachable from the public internet over HTTPS: no IP allow-list, VPN-only or private endpoint, and a certificate Meta trusts. A MinIO service on the internal Docker network does not qualify;
-    - objects stay private (rule 27); the presigned URL alone grants access, or `SOCIALHUB_S3_PUBLIC_BASE_URL` when a public base is configured;
-    - `public_url` raises `ImproperlyConfigured` for a URL that is not `https://`, which is what the `local` backend produces.
-    E00-S04's setup spike publishes a feed image, a reel and two stories from the planned bucket to prove this before the publisher is built.
+    `media_url` also takes `download_name=None`. When it is given, the URL makes the browser save the file under that name instead of opening it: for `s3` the presigned URL carries a `Content-Disposition: attachment; filename*=UTF-8''{name}` response override; for `local` the debug `/media/` view adds the same header when the URL has `?download={name}`. The posting pack in E08-S05 uses it for the final asset and the reel cover.
 31. `local_copy(file_or_key, *, expected_sha256=None)` is a context manager that yields a local `Path` for a stored file:
     - for `s3` it streams the object in 1 MB chunks into a new temporary directory under `SOCIALHUB_WORK_DIR`, checks the SHA-256 when given (mismatch raises `JobError("media_checksum_mismatch")`), and deletes the directory on exit, also on exceptions;
     - for `local` it yields the file's own path without copying.
     Callers must treat the path as read-only.
-32. `work_dir(job_id)` is a context manager that yields an empty scratch directory `SOCIALHUB_WORK_DIR/socialhub-{job_id}-{random}` and deletes it on exit. Renderers and the publisher write outputs there and then save them through storage.
+32. `work_dir(job_id)` is a context manager that yields an empty scratch directory `SOCIALHUB_WORK_DIR/socialhub-{job_id}-{random}` and deletes it on exit. Renderers write outputs there and then save them through storage.
 
 ### Upload validation
 
@@ -215,7 +209,7 @@ The scaffold's provider guard in `backend/config/settings.py` is removed by E00-
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `queue` | text | `default`, `render` or `publish`, copied from the kind registry |
+| `queue` | text | `default` or `render`, copied from the kind registry |
 | `deadline_at` | datetime, null | `started_at` + timeout; used by the sweeper |
 
 Indexes: (`target_type`, `target_id`, `status`); (`account`, `-created_at`); (`status`, `deadline_at`); the partial unique index from rule 9.
@@ -428,9 +422,9 @@ None.
 ### Data layer
 
 - `src/services/socialhub/jobs.ts`: `getJob(id)`, `listJobs(params)`, and the types `Job`, `JobSummary`, `JobStatus`, `isTerminal(status)`.
-- `useJob(jobId | null, { onDone?, onFailed?, intervalMs = 2000 })` uses TanStack Query (query key `['job', jobId]`):
+- `useJob(jobId | null, { onDone?, onFailed?, intervalMs = 2000 })` uses Refine's `useOne` on resource `jobs` (TanStack Query underneath) with `queryOptions.refetchInterval`:
   - polls every `intervalMs` while the status is `queued` or `running`, and stops at `succeeded`, `failed` or `cancelled`;
-  - polling pauses while the browser tab is hidden and resumes when it is visible (TanStack's default);
+  - polling pauses while the browser tab is hidden and resumes when it is visible (TanStack Query's default, which Refine keeps);
   - calls `onDone(job)` once on `succeeded` and `onFailed(job)` once on `failed` or `cancelled`, guarded so a re-render never calls them twice;
   - on network errors it keeps polling with the interval doubling up to 10 seconds; after five failures in a row it exposes `connectionProblem = true`;
   - a `404` stops polling and returns `notFound = true`;
@@ -465,7 +459,7 @@ Behaviour:
 
 ### `JobProgress`
 
-`src/components/JobProgress`. Shows a job's state where more room is available, for example the Connection card in E00-S04 or the production panel in E06-S07.
+`src/components/JobProgress`. Shows a job's state where more room is available, for example the production panel in E06-S07.
 
 | Prop | Type | Meaning |
 | --- | --- | --- |
@@ -488,17 +482,17 @@ It shows `StatusTag kind="job"`, an Ant Design `Progress` bar (`active` while ru
 | `enqueue_failed` | The task couldn't be started. Try again in a minute. |
 | `media_checksum_mismatch` | A stored file looks damaged. Upload it again. |
 
-Stories that introduce job error codes (for example `account_mismatch` in E00-S04) add their text to the same map.
+Stories that introduce job error codes add their text to the same map.
 
 ### Recent jobs — Settings → System, tab "Jobs" (admin)
 
-A `ProTable` on `/settings/system` beside the Status tab from E00-S05, reading `GET /jobs/` without `account`.
+A `Table` (`useTable`) on `/settings/system` beside the Status tab from E00-S05, reading `GET /jobs/` without `account`.
 
 - Columns: Started (`DateTime`), Kind, Account (handle or "System"), Target (`target_type` #`target_id`, linking to `/content/{id}` for content items), Status (`StatusTag kind="job"`), Progress, Duration, Error (text from `jobErrorText`, `error_code` in a tooltip), Started by ("System" when null).
 - Filters: status, kind prefix, account.
 - Auto-refresh every 10 seconds while any row on the page is active; a "Refresh" button.
 - Empty state: "No background tasks yet."
-- Clicking a row opens a `Drawer` with `ProDescriptions` of every field, `result` as formatted JSON, and the request ID.
+- Clicking a row opens a `Drawer` with `Descriptions` of every field, `result` as formatted JSON, and the request ID.
 
 States: skeleton while loading; `PageError` on failure; operators never see the tab.
 
@@ -506,7 +500,7 @@ States: skeleton while loading; `PageError` on failure; operators never see the 
 
 1. Given a registered kind `test.echo` on the `default` queue, when `start_job` is called for content item 88, then a `JobRun` with status `queued`, `queue = default` and `celery_task_id` equal to its ID exists, item 88's `active_job` points to it, and one Celery task is enqueued only after the transaction commits.
 2. Given a `queued` job of kind `test.echo` for item 88, when `start_job("test.echo", target_id=88)` is called again, then `JobInProgress` is raised and the endpoint returns `409 job_in_progress` with that job in `error.details.job`.
-3. Given `instagram.refresh_token` is running for connection 1, when `instagram.verify` is started for connection 1, then it is refused with `job_in_progress`; when it is started for connection 2, then it is created.
+3. Given kinds `test.a` and `test.b` registered with each other in `conflicts_with`, and `test.a` running for content item 88, when `test.b` is started for item 88, then it is refused with `job_in_progress`; when it is started for item 89, then it is created.
 4. Given two requests start the same kind for the same target at the same moment, when both commit, then exactly one job exists.
 5. Given a task body that calls `ctx.progress(40, "Checking copy")` and then `ctx.succeed({"qc_run_id": 7})`, when it runs, then the job goes `queued` → `running` → `succeeded` with `progress` 100, `result` `{"qc_run_id": 7}`, `started_at` and `finished_at` set, the item's `active_job` is null, and `job_finished` is sent once.
 6. Given a task body that raises `JobError("render_failed", "Frame 3 overflowed")`, when it runs, then the job is `failed` with that code and detail; given it raises `KeyError`, then the job is `failed` with `server_error`, and the detail contains no traceback.
@@ -534,7 +528,7 @@ States: skeleton while loading; `PageError` on failure; operators never see the 
 | E00-S06-BE1 | `JobRun`, registry and `start_job` | `apps/core/models.py` `JobRun` with `queue` and `deadline_at`, indexes and the partial unique index; `apps/core/jobs.py` with `register_job_kind`, `register_job_target`, system check, `start_job` (advisory lock, conflict set, on-commit enqueue, `enqueue_failed`), `JobInProgress` mapped to `409 job_in_progress` in `apps/core/errors.py`, `active_job_for`, `cancel_queued_job`. Tests for rules 1–9 and 18. | 0.5 |
 | E00-S06-BE2 | `job_task`, `JobContext` and Celery configuration | Decorator and context (rules 10–16), exception mapping table, `job_finished` signal; Celery settings from rule 24; `compose.yaml` queue flags; `core.ping` on `default`. Tests with eager Celery and `captureOnCommitCallbacks` for success, failure, retry, soft time limit, duplicate delivery, late update. | 0.5 |
 | E00-S06-BE3 | Job endpoints and sweeper | `JobSerializer`, `JobSummarySerializer`; `JobViewSet` (retrieve, list) with filters, ordering and the visibility rules 19–21; `core.sweep_stale_jobs` task and Beat entry; `openapi.yaml` additions for `/jobs/`, `/jobs/{id}/`, the `Job` and `JobSummary` schemas and the `details.job` conflict shape. API tests for every case above. | 0.5 |
-| E00-S06-BE4 | Media storage and upload validation | `django-storages[s3]` and `filetype` pinned in `pyproject.toml` and `requirements.lock`; `STORAGES` built from `SOCIALHUB_MEDIA_BACKEND` with startup checks (rules 26–28); `apps/core/storage.py` with `asset_key`, `brand_key`, `media_url`, `MediaURLField`, `local_copy`, `work_dir`; `apps/core/uploads.py` with `validate_upload`, `UploadInfo`, profiles; `/media/` URL pattern under `DEBUG`; `storage` block for `GET /system/status/`; `.env.example` entries; an optional `minio` service in `compose.yaml` under the `s3` profile. Tests with a temporary `MEDIA_ROOT` and with the S3 backend mocked by `moto`. | 0.5 |
+| E00-S06-BE4 | Media storage and upload validation | `django-storages[s3]` and `filetype` pinned in `pyproject.toml` and `requirements.lock`; `STORAGES` built from `SOCIALHUB_MEDIA_BACKEND` with startup checks (rules 26–28); `apps/core/storage.py` with `asset_key`, `brand_key`, `media_url` (including `download_name`), `MediaURLField`, `local_copy`, `work_dir`; `apps/core/uploads.py` with `validate_upload`, `UploadInfo`, profiles; `/media/` URL pattern under `DEBUG`; `storage` block for `GET /system/status/`; `.env.example` entries; an optional `minio` service in `compose.yaml` under the `s3` profile. Tests with a temporary `MEDIA_ROOT` and with the S3 backend mocked by `moto`. | 0.5 |
 
 ### Frontend
 
@@ -553,7 +547,7 @@ None beyond the tests inside each subtask.
 - **Service tests** run Celery eagerly and use Django's `captureOnCommitCallbacks` to prove enqueueing waits for commit. A concurrency test opens two database connections and calls `start_job` in parallel threads to prove acceptance criterion 4.
 - **Sweeper tests** use a frozen clock for the `deadline_at` and 6-hour queued thresholds.
 - **A contract test** asserts that every registered job kind's task exists and that every task decorated with `job_task` is registered, so a story cannot add a task the registry does not know.
-- **Storage tests** cover both backends: key building (ASCII, Persian and mixed filenames, uppercase extensions), presigned versus public URLs, `local_copy` cleanup on exceptions, checksum mismatch.
+- **Storage tests** cover both backends: key building (ASCII, Persian and mixed filenames, uppercase extensions), presigned versus public URLs, the download header for `download_name` (including a Persian name), `local_copy` cleanup on exceptions, checksum mismatch.
 - **Upload fixtures**: a real PNG, JPEG, WebP, MP4, MOV, MP3, a PNG renamed `.jpg`, an empty file, a text file renamed `.mp4`. Oversized cases set a small profile limit in the test instead of shipping large files.
 - **Manual check**: `docker compose --profile s3 up -d minio`, set the `s3` settings to the MinIO service, upload a logo through E00-S03 and open its URL.
 - **Panel tests** use Vitest with fake timers and a mocked request layer; one Playwright test on the local stack runs the AI test from Settings → System (E00-S05) with fake providers and watches `JobButton` finish.
@@ -564,5 +558,5 @@ None beyond the tests inside each subtask.
 - Prune old `JobRun` rows (for example succeeded jobs older than 90 days) once `active_job` links are known to be clear.
 - Replace polling with server-sent events on a job channel; `useJob` keeps its interface.
 - More targets with an `active_job` field: one `register_job_target` call each.
-- Separate workers for the `publish` queue: change the `worker` command in `compose.yaml`; no code changes.
+- Phase 2: a `publish` queue for the publish worker (E08-S03): add it to `CELERY_TASK_QUEUES`, route `publishing.*` to it, add `publish` to `JobRun.queue` and run a worker for it; the `publish.send` and `publish.verify` kinds register with a 20-minute timeout. E00-S04 registers `instagram.verify` and `instagram.refresh_token` (prunable, conflicting with each other) and maps Instagram provider errors in the job decorator; its `public_url` helper builds on `media_url` for Meta's downloads.
 - Image variants (thumbnails) generated on upload and served from the same storage layer; virus scanning as one more step in `validate_upload`.

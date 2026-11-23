@@ -42,7 +42,7 @@ Stories do not repeat these; they link to them.
 | | |
 | --- | --- |
 | Epic | E00 Name |
-| Priority | Must or Should |
+| Priority | Must, Should or Phase 2 |
 | Estimate | BE n d · FE n d · QA n d |
 | Depends on | story IDs |
 | Needed by | story IDs |
@@ -97,6 +97,7 @@ What this story leaves out and where the seam is.
 Rules for writing stories:
 
 - Subtask estimates add up to the story estimate in ROADMAP.md.
+- A Phase 2 story (Instagram API work, see ROADMAP.md section 0) has Priority `Phase 2` and a one-line quote directly under its title saying it is not built in Phase 1 and what Phase 1 does instead. Phase 1 stories never depend on Phase 2 stories; where they would, they list the Phase 2 addition under "Later".
 - Each subtask is small enough to finish in a day or less and names the files or modules it touches.
 - Tests are part of each subtask. Separate test subtasks exist only for cross-story or end-to-end checks.
 - Sections that do not apply say "None" in one line; they are not removed.

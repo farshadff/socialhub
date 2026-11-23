@@ -6,7 +6,7 @@
 | Priority | Must |
 | Estimate | BE 1.5 d · FE 4 d · QA 0 d |
 | Depends on | E07-S01, E07-S02, E07-S03, E07-S04, E07-S05, E03-S04, E06-S07, E08-S01 |
-| Needed by | E08-S04, E11-S01, E11-S03 |
+| Needed by | E11-S01, E11-S03 |
 
 ## User story
 
@@ -14,7 +14,7 @@ As an operator, I want to see why a version passed, was revised or was escalated
 
 ## Context
 
-This is the "Escalate: send unresolved issues to human review" outcome on the workflow page, and the place where every check result becomes visible. E07-S01 runs the checks and opens review tasks; E07-S02 to E07-S04 define the findings; E07-S05 reworks versions. E08-S01 and E08-S04 also open review tasks, for an item that found no free time (`no_slot`) and for a publication that could not be sent (`publish_failed`).
+This is the "Escalate: send unresolved issues to human review" outcome on the workflow page, and the place where every check result becomes visible. E07-S01 runs the checks and opens review tasks; E07-S02 to E07-S04 define the findings; E07-S05 reworks versions. E08-S01 also opens review tasks, for an item that found no free time (`no_slot`).
 
 This story gives people three things:
 
@@ -53,12 +53,12 @@ The run action, running state and revision banner on the Checks tab are already 
 ### The review queue
 
 6. `GET /review-tasks/` requires `account`. Filters: `status` (default `open`), `reason`, `content_item`, `created_after`, `created_before`. Ordering: `created_at` (default, oldest first, so the queue is worked in order) or `-created_at`.
-7. Each row carries the task, a summary of its item, a summary of the run that opened it (for `qc_escalated` and `max_revisions`) and, for `publish_failed`, a summary of the publication.
+7. Each row carries the task, a summary of its item, and a summary of the run that opened it (for `qc_escalated` and `max_revisions`).
 8. The panel's Review menu badge shows the `count` of open tasks for the current account.
 
 ### The review task page
 
-9. `GET /review-tasks/{id}/` returns everything the page needs in one response: the task, the item, the version under review with media and copy, the run with its five results and findings, the previous version and a computed diff, the publication when there is one, and `decisions` — for each of the three decisions whether it is allowed now and, if not, why.
+9. `GET /review-tasks/{id}/` returns everything the page needs in one response: the task, the item, the version under review with media and copy, the run with its five results and findings, the previous version and a computed diff, and `decisions` — for each of the three decisions whether it is allowed now and, if not, why.
 10. The diff compares the item's current version with the version numbered one lower. It covers caption, hashtags (added and removed), alt text, final asset, cover asset, the indexes of frames whose asset changed, the script version, and the current version's `change_note`. For version 1 the diff is null.
 11. `can_recheck` is true when the item is `in_review`, the task reason is `qc_escalated` or `max_revisions`, and no job is active. The page then shows "Run checks again", which calls the E07-S01 endpoint. A recheck that passes resolves the task itself (E07-S01 rule 20).
 
@@ -70,14 +70,13 @@ The run action, running state and revision banner on the Checks tab are already 
 | --- | --- | --- | --- | --- |
 | `qc_escalated` | `in_review` | Yes, subject to the override rule (13) and a note | Yes | Yes |
 | `max_revisions` | `in_review` | Yes, subject to the override rule (13) and a note | Yes | Yes |
-| `publish_failed` | `failed` | Yes; means "try again" and calls the E08-S04 retry service | Yes; through the E08-S04 hook | Yes; through the E08-S04 hook |
 | `no_slot` | `in_review` | Yes; requires a time or a slot (rule 16) | No | Yes |
 | `manual` | `in_review` | As `qc_escalated`; when the task has no run, the override rule does not apply | Yes | Yes |
 
-`manual` is in the reason enum for later use; no MVP flow creates such a task.
+`manual` is in the reason enum for later use; no Phase 1 flow creates such a task. `publish_failed` is also in the enum and is reserved for Phase 2 (E08-S04); no Phase 1 flow creates it, and the resolve endpoint answers `409 invalid_transition` with `details.reason = "decision_not_allowed"` for it.
 
 13. **Override rule.** Approving a `qc_escalated`, `max_revisions` or `manual` task overrides the findings of its run. Every finding of severity `major` or `blocker` in that run is a *blocking finding*. Approve is allowed only when every blocking finding has `override_allowed = true`. Otherwise approve is refused with `409 invalid_transition`, `details.reason = "not_overridable"` and the blocking findings that cannot be overridden. The way out for those is named in their suggestion: request changes, fix the asset rights in the library and recheck, or reject.
-14. Approving with blocking findings requires a `decision_note` of 10 to 1,000 characters. It is stored on the task, the overridden finding codes are stored in `ReviewTask.overridden_findings`, and the `review_decision` event records them (rule 22). For facts findings the note is the place to state how the claim was verified (E07-S03 rule 24).
+14. Approving with blocking findings requires a `decision_note` of 10 to 1,000 characters. It is stored on the task, the overridden finding codes are stored in `ReviewTask.overridden_findings`, and the `review_decision` event records them (rule 21). For facts findings the note is the place to state how the claim was verified (E07-S03 rule 24).
 15. **Request changes** requires `instructions` (10 to 2,000 characters) and `rework`:
 
 | `rework` | Panel label | What happens next (E07-S05) |
@@ -102,14 +101,10 @@ The run action, running state and revision banner on the Checks tab are already 
 | Request changes | Version → `rejected` if it is `submitted`; item `in_review → needs_revision`, with the transition event's `data.source = {"review_task_id": id}`; `advance(item)` starts the revise job, or for rework `manual` opens draft n+1 through E06-S07's `open_revision(source="review")`, which moves the item on to `in_production` (E07-S05 rules 1–2). Counters follow E07-S05 rule 17: `revision_count` grows, `auto_revision_count` does not |
 | Reject | Item cancelled through the pipeline's cancel service with reason "Rejected in review: {decision_note}" and the given `release_candidate`. The slot is released as in E03-S04 rule 15 (`open` when its time is in the future, otherwise `skipped`). The version stays as it is |
 
-20. Effects for `publish_failed` tasks are delegated to E08-S04 through `publishing.services.recovery.on_review_decision(task, decision, user)`:
-    - Approve calls the retry service (E08-S04 rule 19). Its gates and errors pass through unchanged, for example `409 invalid_transition` with `details.reason = "version_rejected"` when Instagram rejected the media, `409 publishing_disabled`, `409 instagram_not_connected`, `409 instagram_permission_missing`, or `409 invalid_transition` with `details.reason = "already_live"` when the container already reads `PUBLISHED`. On such an error the whole transaction rolls back and the task stays open.
-    - Request changes cancels the failed publication keeping the slot `reserved`, moves the item `failed → needs_revision` and continues as in rule 19.
-    - Reject cancels the publication and the item (E08-S04 rule 17).
-21. Effects for `no_slot` tasks: approve schedules (rule 16), item `in_review → approved → scheduled`; reject as in rule 19.
-22. Every resolution writes one `ContentEvent` of type `review_decision` with `actor` = the user, `message` = a one-line summary ("Approved despite 1 facts finding: 'Checked against the 2025 annual report, page 12.'"), and `data = {"review_task_id", "reason", "decision", "rework", "override": true|false, "overridden_findings": ["facts.unsupported_numeric"], "qc_run_id", "release_candidate"}`.
-23. **Concurrency.** A task that is already resolved returns `409 invalid_transition` with `details.status = "resolved"` and who resolved it and how. The request carries an optional `Idempotency-Key`; repeating a successful request with the same key returns the first response instead of the 409, so a double click or a retried request is harmless.
-24. The response includes `next_open_task_id`: the oldest other open task of the same account, or null. The panel uses it to move to the next task.
+20. Effects for `no_slot` tasks: approve schedules (rule 16), item `in_review → approved → scheduled`; reject as in rule 19.
+21. Every resolution writes one `ContentEvent` of type `review_decision` with `actor` = the user, `message` = a one-line summary ("Approved despite 1 facts finding: 'Checked against the 2025 annual report, page 12.'"), and `data = {"review_task_id", "reason", "decision", "rework", "override": true|false, "overridden_findings": ["facts.unsupported_numeric"], "qc_run_id", "release_candidate"}`.
+22. **Concurrency.** A task that is already resolved returns `409 invalid_transition` with `details.status = "resolved"` and who resolved it and how. The request carries an optional `Idempotency-Key`; repeating a successful request with the same key returns the first response instead of the 409, so a double click or a retried request is harmless.
+23. The response includes `next_open_task_id`: the oldest other open task of the same account, or null. The panel uses it to move to the next task.
 
 ## Data
 
@@ -256,7 +251,7 @@ Same run shape as above, plus `details` per result, `item` and `version`:
 
 ```json
 {
-  "count": 2,
+  "count": 1,
   "next": null,
   "previous": null,
   "results": [
@@ -267,20 +262,6 @@ Same run shape as above, plus `details` per result, `item` and `version`:
       "detail": "Escalated: the caption states '37%' and no reference supports it.",
       "item": {"id": 42, "title": "Four moves for a tidy desk", "format": "reel", "status": "in_review", "slot_scheduled_at": "2026-12-02T15:30:00Z", "thumbnail_url": "https://media.example.com/accounts/3/2026/12/641-cover-thumb.jpg"},
       "qc_run": {"id": 119, "attempt": 2, "outcome": "escalate", "finding_counts": {"blocker": 1, "major": 0, "minor": 1, "info": 1}},
-      "publication": null,
-      "decision": null,
-      "resolved_by": null,
-      "resolved_at": null,
-      "created_at": "2026-12-01T08:33:02Z"
-    },
-    {
-      "id": 34,
-      "reason": "publish_failed",
-      "status": "open",
-      "detail": "3 attempts. Last error: timeout while waiting for Instagram (ambiguous). The post was not found on the account 30 minutes after the last attempt. Check the profile before retrying.",
-      "item": {"id": 39, "title": "Behind the scenes: packing day", "format": "story", "status": "failed", "slot_scheduled_at": "2026-12-01T06:30:00Z", "thumbnail_url": "https://media.example.com/accounts/3/2026/12/588-thumb.jpg"},
-      "qc_run": null,
-      "publication": {"id": 77, "status": "failed", "scheduled_at": "2026-12-01T06:30:00Z", "attempt_count": 3},
       "decision": null,
       "resolved_by": null,
       "resolved_at": null,
@@ -354,7 +335,6 @@ Same run shape as above, plus `details` per result, `item` and `version`:
     "change_note": "Automatic revision 1 of 2. Caption shortened from 2,431 to 2,084 characters."
   },
   "qc_run": { "… the run shape of GET /checks/runs/{id}/, without item and version …": true },
-  "publication": null,
   "decisions": {
     "approve": {"allowed": true, "requires_note": true, "blocking_findings": [{"check": "facts", "code": "facts.unsupported_numeric", "override_allowed": true}]},
     "request_changes": {"allowed": true, "rework_options": ["copy", "script", "manual"]},
@@ -383,7 +363,7 @@ In the diff, `before` and `after` are the full texts; they are shortened here. A
 }
 ```
 
-Other `reason` values for a disallowed decision: `decision_not_allowed` (rule 12), `item_status` (the item is not in the status rule 12 expects), `job_in_progress`, `resolved`. For `no_slot`, `approve` carries `"requires_time": true`. For `publish_failed`, `publication` holds `{"id", "status", "scheduled_at", "attempt_count", "blocked_reason", "last_error_code", "last_error_message"}`.
+Other `reason` values for a disallowed decision: `decision_not_allowed` (rule 12), `item_status` (the item is not in the status rule 12 expects), `job_in_progress`, `resolved`. For `no_slot`, `approve` carries `"requires_time": true`.
 
 | Case | Response |
 | --- | --- |
@@ -474,7 +454,6 @@ Errors:
 | Current version differs from the run's version | 409 | `invalid_transition` | `{"status": "open", "reason": "version_changed"}` |
 | Scheduler raised during approval | 409 | `invalid_transition` | `{"status": "open", "reason": "scheduling_failed"}` |
 | A job is active on the item (for example a recheck) | 409 | `job_in_progress` | `{"job": { … }}` |
-| `publish_failed` approve refused by the retry service | 409 | as returned by E08-S04 | for example `invalid_transition` with `{"reason": "version_rejected"}` or `{"reason": "already_live"}`, `publishing_disabled`, `instagram_not_connected`, `instagram_permission_missing` |
 
 Example of a resolved-task conflict:
 
@@ -493,7 +472,7 @@ Example of a resolved-task conflict:
 
 ## Background work
 
-None of its own. A resolution may start a `qc.revise` job (E07-S05) through `advance(item)`, or the publish dispatcher through the E08-S04 retry service; both are enqueued after the transaction commits.
+None of its own. A resolution may start a `qc.revise` job (E07-S05) through `advance(item)`; it is enqueued after the transaction commits.
 
 ## AI
 
@@ -509,7 +488,7 @@ Built once in `src/components/quality/` and used on the Checks tab and the revie
 | --- | --- |
 | `OutcomeTag` | Pass (green), Revise (orange), Escalate (red), Running (blue), Failed run (red, "Run failed"), always with text |
 | `SeverityTag` | Blocker (red), Major (orange), Minor (blue), Info (grey) |
-| `CheckCard` | `ProCard` titled by check name (Format, Rights, Copy, Facts, Design) with `OutcomeTag`, score ("Score 60"), checker ("Rules" or "AI + rules"), the finding list, and a collapsible "Details" section: Format → "Measured" `ProDescriptions` from `details.probe`; Rights → input asset list with origin, rights status and a link to the library; Facts → claims table (Claim, Kind, Status, Reference, Evidence quote) with unsupported and contradicted rows highlighted; Design → frames inspected; Copy → counters |
+| `CheckCard` | `Card` titled by check name (Format, Rights, Copy, Facts, Design) with `OutcomeTag`, score ("Score 60"), checker ("Rules" or "AI + rules"), the finding list, and a collapsible "Details" section: Format → "Measured" `Descriptions` from `details.probe`; Rights → input asset list with origin, rights status and a link to the library; Facts → claims table (Claim, Kind, Status, Reference, Evidence quote) with unsupported and contradicted rows highlighted; Design → frames inspected; Copy → counters |
 | `FindingList` | Findings ordered blocker → info. Each row: `SeverityTag`, message (`ContentText`), location link, suggestion in secondary text, and two small markers: "Fixed automatically" when `auto_fixable` and the run ended in Revise, "Cannot be overridden" when `override_allowed` is false |
 | `FindingLocation` | `{"field": "caption"}` → "Caption"; `{"frame_index": 2}` → "Frame 2"; `{"asset_id": 611}` → asset file name; `{}` → nothing. On the review page a frame link jumps `MediaPreview` to that frame's start time; a field link scrolls to and highlights that block. On the Checks tab both open the Production tab with `?tab=production&focus=frame-2` or `focus=caption`. Asset links open `/library?asset={id}` |
 
@@ -538,16 +517,16 @@ States:
 
 ### Review queue — `/review`
 
-- `PageContainer` titled "Review", description "Items the system could not decide on its own."
+- `PageFrame` titled "Review", description "Items the system could not decide on its own."
 - Segmented control: "Open" (default) and "Resolved".
-- `ProTable`, 20 per page, server paging. Columns for Open:
+- `Table` (`useTable`), 20 per page, server paging. Columns for Open:
 
 | Column | Content |
 | --- | --- |
 | (thumbnail) | 48 px preview in the format's aspect ratio, or the format icon |
 | Item | Title (`ContentText`) linking to `/review/{taskId}`, format tag under it |
-| Reason | Escalated by checks · Revision limit reached · Publishing failed · No free time · Flagged by a person |
-| Summary | For check reasons: `OutcomeTag` and finding counts ("1 blocker · 1 minor"); for `publish_failed`: "3 attempts"; for `no_slot`: the detail; shortened to two lines with the full text in a tooltip |
+| Reason | Escalated by checks · Revision limit reached · No free time · Flagged by a person |
+| Summary | For check reasons: `OutcomeTag` and finding counts ("1 blocker · 1 minor"); for `no_slot`: the detail; shortened to two lines with the full text in a tooltip |
 | Slot | `DateTime` of the item's slot, or "No slot"; red text when it is in the past |
 | Created | `DateTime` |
 | Age | "3 h", "2 d"; orange from 24 h |
@@ -561,7 +540,7 @@ States:
 
 ### Review task page — `/review/:taskId`
 
-`PageContainer`: title "Review: {item title}", subtitle reason label and "Opened {DateTime}", extra actions "Open item" (to `/content/{id}?tab=checks`) and, when `can_recheck`, the `JobButton` "Run checks again" (E07-S01 endpoint, `Popconfirm` "Run all five checks on version {n} again?").
+`PageFrame`: title "Review: {item title}", subtitle reason label and "Opened {DateTime}", extra actions "Open item" (to `/content/{id}?tab=checks`) and, when `can_recheck`, the `JobButton` "Run checks again" (E07-S01 endpoint, `Popconfirm` "Run all five checks on version {n} again?").
 
 Two columns at 1280 px and above:
 
@@ -570,24 +549,23 @@ Two columns at 1280 px and above:
 - `MediaPreview` (E06-S07) of the final asset with the safe-area toggle; for a reel, the cover below it. When the version has frames, a frame strip under the preview; clicking a frame jumps to its start.
 - Caption block: caption (`ContentText`), hashtags as tags, alt text; stories show "Stories have no caption."
 - Slot: `DateTime` and slot status.
-- For `publish_failed`: a "Publication" card with status, attempts, last error and the E08-S04 actions "Mark as published" and "Cancel publication", which use the E08 endpoints.
 
 **Right (about 60%)**
 
 - Detail `Alert` (warning) with the task's `detail`.
-- "Findings" — `FindingList`s grouped by check, only checks with findings, blocking findings first. Each group shows the check's `OutcomeTag`. For `publish_failed` and `no_slot` this section is replaced by the publication or scheduling explanation.
+- "Findings" — `FindingList`s grouped by check, only checks with findings, blocking findings first. Each group shows the check's `OutcomeTag`. For `no_slot` this section is replaced by the scheduling explanation.
 - "What changed" — from `diff`: a two-column before/after for caption and alt text (changed words highlighted, `ContentText`), hashtag chips marked added (green) and removed (red, struck through), "Final file replaced" or "Same final file", "Frames {list} rendered again", "Script version 3 → 4", and the change note. For version 1: "This is the first version."
-- **Decision** card, a `ProForm`:
-  - Radio group: "Approve" (for `publish_failed`: "Retry publishing"; for `no_slot`: "Schedule at a time"), "Request changes", "Reject". A disallowed option is disabled with a tooltip from `decisions.*.reason`: "These findings cannot be overridden: Unknown usage rights. Request changes or fix the asset in the library and run the checks again." / "Not available for this reason."
+- **Decision** card, a `Form` (`useForm`):
+  - Radio group: "Approve" (for `no_slot`: "Schedule at a time"), "Request changes", "Reject". A disallowed option is disabled with a tooltip from `decisions.*.reason`: "These findings cannot be overridden: Unknown usage rights. Request changes or fix the asset in the library and run the checks again." / "Not available for this reason."
   - Approve fields: for check reasons, a list "You are approving despite:" with the blocking findings, and "Why is this fine?" `TextArea` (required, 10–1,000). For `no_slot`: a choice between "Open slot" (select of open slots of the same format in the plan, from `GET /plans/{id}/slots/?status=open&format=…`) and "Specific time" (date-time picker in the account timezone, limited to the plan week).
   - Request changes fields: "What should change?" `TextArea` (required, 10–2,000) with a button "Add findings" that appends the selected findings' messages and suggestions as a numbered list; "Who fixes it?" radio with the three rework labels from rule 15 (`script` hidden for manual uploads, `copy` preselected).
   - Reject fields: "Reason" `TextArea` (required, 3–500); checkbox "Return the idea to selection" (sends `release_candidate`).
-  - Submit button label follows the choice: "Approve and schedule", "Retry publishing", "Schedule", "Send back for changes", "Reject item".
+  - Submit button label follows the choice: "Approve and schedule", "Schedule", "Send back for changes", "Reject item".
 - Confirmations (`Modal.confirm`, naming the item):
-  - Approve: "Approve '{title}' and schedule it? It will publish at {slot time} without further checks." For `publish_failed`: "Retry publishing? The account is checked first. If the post is already live, nothing is sent."
+  - Approve: "Approve '{title}' and schedule it? It will publish at {slot time} without further checks."
   - Request changes: "Send '{title}' back for changes? {rework sentence}" where the sentence is "The caption will be rewritten and checked again." / "The script will be rewritten, frames rendered again and checked again." / "The item moves to Production for you to edit."
   - Reject (danger): "Reject '{title}'? The item is cancelled and the {slot time} slot is freed. This cannot be undone."
-- After success: `message.success` ("Approved and scheduled for {time}", "Sent back for changes", "Item rejected", "Retry started"), then navigate to `/review/{next_open_task_id}`, or to `/review` with "All caught up." when it is null. The menu badge refetches.
+- After success: `message.success` ("Approved and scheduled for {time}", "Sent back for changes", "Item rejected"), then navigate to `/review/{next_open_task_id}`, or to `/review` with "All caught up." when it is null. The menu badge refetches.
 
 States:
 
@@ -607,7 +585,7 @@ States:
 1. Given an item with two completed runs, when I call `GET /content-items/{id}/checks/`, then both runs are returned newest first, each with five results, and every finding has `override_allowed` and `fix` from the catalogue.
 2. Given a running run, then it appears first with `status = running` and empty results.
 3. Given a facts result, when I call `GET /checks/runs/{id}/`, then its `details.claims` list is returned with status and reference per claim.
-4. Given three open tasks created at different times, when I list with `account` and no other filter, then they are returned oldest first; with `reason=publish_failed`, only that reason is returned.
+4. Given three open tasks created at different times, when I list with `account` and no other filter, then they are returned oldest first; with `reason=no_slot`, only that reason is returned.
 5. Given a version-2 item whose caption and hashtags changed, when I open its task, then `diff.caption.changed` is true, removed hashtags are listed, and `diff.final_asset.changed` is false.
 6. Given a `qc_escalated` task whose only blocking finding is `facts.unsupported_numeric`, when I approve with a 12-character note, then the task is resolved with `overridden_findings = ["facts.unsupported_numeric"]`, the version is `passed`, the item is `scheduled` with a publication, and a `review_decision` event with `override: true` exists.
 7. Given the same task, when I approve without a note, then I get `400` on `decision_note` and nothing changes.
@@ -617,8 +595,8 @@ States:
 11. Given request changes with rework `manual`, then no job starts and the item is `in_production` with the instructions in `hold_reason`.
 12. Given a `qc_escalated` task, when I reject with a note and `release_candidate: true`, then the item is `cancelled`, its future slot is `open`, the candidate is back to `candidate`, and no other review task is left open.
 13. Given a `no_slot` task, when I approve with an open slot of the same format, then the item is `scheduled` at that slot's time; with a time that breaks the daily limit, I get `400` on `scheduled_at` with code `daily_limit`; with request changes, I get `409` with `reason = decision_not_allowed`.
-14. Given a `publish_failed` task, when I approve, then the E08-S04 retry service runs, the publication is `scheduled` again and the task is resolved; when Instagram had rejected the media, I get `409` with `reason = version_rejected` and the task stays open.
-15. Given a `publish_failed` task, when I request changes with rework `copy`, then the publication is cancelled, the slot stays `reserved` and the item goes back to production.
+14. Given a `no_slot` task, when I approve with a `scheduled_at` inside the plan week that breaks no scheduling rule, then the item is `scheduled` at that time, the task is resolved, the response carries the publication summary, and a `review_decision` event with `reason = no_slot` and `override: false` exists.
+15. Given a `no_slot` task, when I reject it with a note, then the item is `cancelled` and its slot is released as in rule 19.
 16. Given two reviewers resolving the same task at the same moment, then exactly one succeeds and the other gets `409 invalid_transition` with `details.status = resolved`.
 17. Given a successful resolve, when the same request is repeated with the same `Idempotency-Key`, then the first response is returned and no second effect happens.
 18. Given an item with an active recheck job, when I try to resolve its task, then I get `409 job_in_progress`.
@@ -635,7 +613,7 @@ States:
 | --- | --- | --- | --- |
 | E07-S06-BE1 | Check run read endpoints | `quality/serializers.py` for runs, results and findings with catalogue lookups (`override_allowed`, `fix`); `GET /content-items/{id}/checks/` and `GET /checks/runs/{id}/` with version summary and `details`; API tests | 0.25 |
 | E07-S06-BE2 | Review task list and detail | `ReviewTaskViewSet` list and retrieve; filters, ordering, row summaries; diff builder `quality/review/diff.py`; `decisions` and `can_recheck` computed by the same rule functions the resolve service uses; `ReviewTask (account, status, created_at)` index; tests | 0.5 |
-| E07-S06-BE3 | Resolve service | `quality/review/resolve.py`: locking, rule 12 table, override rule, per-decision validation, effects through `content.services.pipeline`, the E08-S01 scheduling forms and the E08-S04 recovery hook, `overridden_findings` migration, `review_decision` events, `next_open_task_id`; one test per row of the error table and per effect | 0.5 |
+| E07-S06-BE3 | Resolve service | `quality/review/resolve.py`: locking, rule 12 table, override rule, per-decision validation, effects through `content.services.pipeline`, the E08-S01 scheduling forms, `overridden_findings` migration, `review_decision` events, `next_open_task_id`; one test per row of the error table and per effect | 0.5 |
 | E07-S06-BE4 | Endpoint, idempotency and contract | `POST /review-tasks/{id}/resolve/` view, `Idempotency-Key` store (24 h), concurrency test with two threads, `docs/openapi.yaml` for the five endpoints | 0.25 |
 
 ### Frontend
@@ -644,9 +622,9 @@ States:
 | --- | --- | --- | --- |
 | E07-S06-FE1 | Quality components | `OutcomeTag`, `SeverityTag`, `CheckCard` with the four details views, `FindingList`, `FindingLocation`; label maps; component tests | 1 |
 | E07-S06-FE2 | Checks tab | `src/pages/content/workspace/tabs/ChecksTab/index.tsx`: banner and run header placement from E07-S01 and E07-S05, latest run card, run history, `focus` links into the Production tab, all states; services in `src/services/socialhub/checks.ts` | 0.75 |
-| E07-S06-FE3 | Review queue and menu badge | `src/pages/review/index.tsx`: Open/Resolved switch, `ProTable` columns, reason filter, empty states; Review menu `Badge` with 60-second refetch; services in `src/services/socialhub/reviewTasks.ts` | 0.75 |
-| E07-S06-FE4 | Review task page layout | `src/pages/review/[taskId]/index.tsx`: header actions and recheck, `MediaPreview` with frame jumps, caption block, publication card, findings by check, "What changed" diff view, all states | 0.75 |
-| E07-S06-FE5 | Decision form | Three actions with per-reason variants (override list and note, slot or time for `no_slot`, retry wording for `publish_failed`), "Add findings", rework choice, confirmations, error mapping by `details.reason`, navigation to the next task; form tests | 0.75 |
+| E07-S06-FE3 | Review queue and menu badge | `src/pages/review/index.tsx`: Open/Resolved switch, `Table` (`useTable`) columns, reason filter, empty states; Review menu `Badge` with 60-second refetch; services in `src/services/socialhub/reviewTasks.ts` | 0.75 |
+| E07-S06-FE4 | Review task page layout | `src/pages/review/[taskId]/index.tsx`: header actions and recheck, `MediaPreview` with frame jumps, caption block, findings by check, "What changed" diff view, all states | 0.75 |
+| E07-S06-FE5 | Decision form | Three actions with per-reason variants (override list and note, slot or time for `no_slot`), "Add findings", rework choice, confirmations, error mapping by `details.reason`, navigation to the next task; form tests | 0.75 |
 
 ### Test
 
@@ -656,8 +634,8 @@ States:
 
 ## Test notes
 
-- Fixtures: one item per reason (`qc_escalated` with an overridable facts blocker, `qc_escalated` with `rights.unknown`, `max_revisions`, `publish_failed` with and without a fatal error, `no_slot`), each with two versions so the diff is not empty.
-- Resolve service tests use stubs of E08's `schedule_item` and `on_review_decision` that record calls and can raise `SchedulingError` or the retry errors.
+- Fixtures: one item per reason (`qc_escalated` with an overridable facts blocker, `qc_escalated` with `rights.unknown`, `max_revisions`, `no_slot`), each with two versions so the diff is not empty.
+- Resolve service tests use a stub of E08's `schedule_item` that records calls and can raise `SchedulingError`.
 - Concurrency: two threads resolving the same task; assert one `200`, one `409`, one `review_decision` event.
 - Idempotency: same key twice returns the same body; a different key after resolution returns `409`.
 - Override rule table test: every catalogue code with `major` or `blocker` severity, approve allowed exactly when `override_allowed` is true.
@@ -669,3 +647,4 @@ States:
 - `overridden_findings` plus the `review_decision` events are the data for measuring checker accuracy and tuning severities.
 - A "Flag for review" action on any item would create `manual` tasks; the decision rules already cover that reason.
 - Inline caption editing on the review page could create a new draft version and submit it, reusing the Production endpoints.
+- Phase 2: `publish_failed` tasks opened by E08-S04 — the decision rules for that reason (approve calls the retry service, request changes and reject go through `publishing.services.recovery.on_review_decision`), the publication summary on list rows and the detail, the Publication card with "Mark as published" and "Cancel publication", and the "Retry publishing" wording.

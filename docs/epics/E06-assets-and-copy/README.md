@@ -89,7 +89,7 @@ manual upload ──────────────────────
 | E05-S01 | The template list and text limits the script generator must respect (`GET /render-templates/`) |
 | E07-S01 … E07-S04 | The submitted `ContentVersion`, its assets and rights metadata |
 | E07-S05, E07-S06 | `open_revision` service and re-production of a new version |
-| E08-S03 | `final_asset`, `cover_asset`, caption and hashtags to publish |
+| E08-S05 | `final_asset`, `cover_asset`, caption and hashtags for the posting pack (in Phase 2 also E08-S03, which publishes them) |
 
 ## Done when
 

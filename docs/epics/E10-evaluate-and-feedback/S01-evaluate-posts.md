@@ -5,7 +5,7 @@
 | Epic | E10 Evaluate and feed back |
 | Priority | Must |
 | Estimate | BE 3 d · FE 1.5 d · QA 0 d |
-| Depends on | E09-S01, E09-S03, E08-S03, E04-S03, E01-S01, E01-S02, E00-S06 |
+| Depends on | E09-S03, E09-S04, E08-S05, E04-S03, E01-S01, E01-S02, E00-S06 |
 | Needed by | E10-S02, E10-S04, E11-S01 |
 
 ## User story
@@ -14,7 +14,7 @@ As an operator, I want every published post to be compared with its goal and wit
 
 ## Context
 
-Step 10 of the workflow. E09-S01 stores a `MetricSnapshot` for each publication at fixed ages. A raw number such as "84 saves" says little on its own. This story turns each snapshot at an evaluation checkpoint into a `PerformanceEvaluation`: the value of the post's primary metric, whether the goal was met, how it compares with the median of similar posts at the same age, and a verdict. The weekly report (E10-S02) and repurpose tasks (E10-S04) are built from these records.
+Step 10 of the workflow. E09-S03 stores a `MetricSnapshot` when the operator enters a publication's numbers at a checkpoint, and E09-S04 asks for them at the evaluation checkpoints. A raw number such as "84 saves" says little on its own. This story turns each snapshot at an evaluation checkpoint into a `PerformanceEvaluation`: the value of the post's primary metric, whether the goal was met, how it compares with the median of similar posts at the same age, and a verdict. The weekly report (E10-S02) and repurpose tasks (E10-S04) are built from these records.
 
 ## Scope
 
@@ -38,7 +38,7 @@ Step 10 of the workflow. E09-S01 stores a `MetricSnapshot` for each publication 
 ### Which checkpoints are evaluated
 
 1. Evaluation checkpoints by format: `reel` and `feed_post` → `24h` and `7d`; `story` → `23h`. The last one for a format is its **final checkpoint** (`7d`, `7d`, `23h`). Constants live in `analytics/services/evaluation.py` as `EVALUATION_CHECKPOINTS` and `FINAL_CHECKPOINT`.
-2. An evaluation is created for a publication and checkpoint when a `MetricSnapshot` with `status = captured` exists for that publication and that checkpoint. Rows with `status = skipped` (E09-S01) never produce an evaluation; the panel shows them as "not captured" (see Panel). Snapshots with checkpoint `adhoc`, `1h`, `6h` or `72h` are never evaluated. Manual snapshots (`source = manual`) count the same as provider snapshots. When manual entry (E09-S03 rule 17) replaces the numbers of a captured snapshot, E09-S03 deletes the evaluation for that publication and checkpoint in the same transaction. The next `analytics.evaluate_due` run finds the pair without an evaluation and recomputes it; no separate trigger exists.
+2. An evaluation is created for a publication and checkpoint when a `MetricSnapshot` with `status = captured` exists for that publication and that checkpoint. Rows with `status = skipped` (E09-S04) never produce an evaluation; the panel shows them as "not entered" (see Panel). Snapshots with checkpoint `adhoc`, `1h`, `6h` or `72h` are never evaluated. Every Phase 1 snapshot has `source = manual`; Phase 2 adds `source = provider` rows, which count the same. When manual entry (E09-S03 rule 13) replaces the numbers of a captured snapshot, E09-S03 deletes the evaluation for that publication and checkpoint in the same transaction. The next `analytics.evaluate_due` run finds the pair without an evaluation and recomputes it; no separate trigger exists.
 3. Only publications with status `published` are evaluated.
 4. There is at most one `PerformanceEvaluation` per (`publication`, `checkpoint`). Evaluating again recomputes and overwrites that row (`update_or_create`); it never creates a second one.
 
@@ -227,7 +227,7 @@ Response `200`: the list item plus:
   ],
   "baseline_window_days": 60,
   "thresholds": {"outperforming": 1.5, "underperforming": 0.6, "min_samples": 5},
-  "snapshot": {"id": 733, "checkpoint": "7d", "captured_at": "2026-12-08T15:32:41Z", "age_minutes": 10082, "source": "provider"}
+  "snapshot": {"id": 733, "checkpoint": "7d", "captured_at": "2026-12-08T15:32:41Z", "age_minutes": 10082, "source": "manual"}
 }
 ```
 
@@ -303,7 +303,7 @@ Layout, top to bottom:
    - Without: "Saves 84 at 7 d — only 4 similar reels in the last 60 days; 5 are needed for a comparison."
    - Value missing: "Shares were not available at 24 h."
 3. **Goal row:** `StatusTag` "Goal met" (green), "Goal missed" (red; on a non-final checkpoint the label is "Goal not met yet", warning colour), "No goal" (default) or "Not measured" (default), followed by "84 of 60". When `goal_source` is `week_total_share`, a tooltip says "Share of the weekly goal: 50,000 ÷ 10 slots".
-4. **All metrics table** (`ProTable`, no paging): columns Metric, Value, Baseline (median), Ratio, Goal, Samples. Null cells show "—"; a metric listed as unavailable shows "Not available". The primary metric's row is marked with a "Primary" tag.
+4. **All metrics table** (`Table` (`useTable`), no paging): columns Metric, Value, Baseline (median), Ratio, Goal, Samples. Null cells show "—"; a metric listed as unavailable shows "Not available". The primary metric's row is marked with a "Primary" tag.
 5. **Compared with** (collapsed by default): the `baseline_samples` list as links to `/analytics/posts/:publicationId` with each value.
 
 States:
@@ -311,8 +311,8 @@ States:
 | State | Display |
 | --- | --- |
 | Loading | Skeleton card |
-| No evaluation yet, post younger than the first checkpoint | `Empty`: "This post will be evaluated when its 24 h metrics arrive." with the expected time through `DateTime` |
-| No evaluation, snapshot missing or recorded as skipped after the checkpoint age | `Empty`: "No 24 h metrics were captured for this post." with a link to manual entry (E09-S03) |
+| No evaluation yet, post younger than the first checkpoint | `Empty`: "This post will be evaluated when its 24 h metrics are entered." with the expected time through `DateTime` |
+| No evaluation, snapshot missing or recorded as skipped after the checkpoint age | `Empty`: "No 24 h metrics were entered for this post." with a link to manual entry (E09-S03) |
 | Not published | Card is not rendered |
 | Job running | "Evaluate now" shows progress; the rest stays readable |
 | Error | Inline `Result` with Retry and the `request_id` |
@@ -383,4 +383,5 @@ None beyond the tests in each subtask.
 
 - Baseline dimensions (role, media kind, hour of day): add arguments to `compute_baseline`; the stored fields stay the same.
 - Automatic re-evaluation when a manual snapshot is edited: call `evaluate_publication` from the snapshot save hook.
+- Phase 2: snapshots collected from Instagram (E09-S01) are evaluated by the same rules; nothing in this story changes.
 - Per-account thresholds: move the two ratios from settings to `InstagramAccount.posting_rules`.

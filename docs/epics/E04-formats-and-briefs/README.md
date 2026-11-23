@@ -87,8 +87,8 @@ This epic also owns the format registry: one code module that states, for each f
 | E05-S01, E05-S02 | Approved brief; registry module where `script_rules` and `frame_templates` are added |
 | E06-S02, E06-S03, E06-S06, E06-S07 | Canvas sizes, layouts, safe areas, media and copy limits; the brief for copy |
 | E07-S02, E07-S03, E07-S04 | Format limits; brief references for the facts check |
-| E08-S01, E08-S03 | Publish method, capability and daily-limit group per format; caption limit |
-| E09-S01 | Metric checkpoints per format |
+| E08-S01, E08-S05 | Daily-limit group per format; caption limit |
+| E09-S03, E09-S04 | Metric and evaluation checkpoints per format |
 | E10-S01 | Evaluation checkpoints; brief `success_metric` and role defaults |
 
 ## Done when

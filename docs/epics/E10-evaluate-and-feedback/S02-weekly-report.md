@@ -5,7 +5,7 @@
 | Epic | E10 Evaluate and feed back |
 | Priority | Must |
 | Estimate | BE 2.5 d · FE 2.5 d · QA 0 d |
-| Depends on | E10-S01, E09-S02, E01-S03, E00-S05, E00-S06 |
+| Depends on | E10-S01, E09-S03, E01-S03, E00-S05, E00-S06 |
 | Needed by | E10-S03, E11-S03 |
 
 ## User story
@@ -14,7 +14,7 @@ As an operator, I want one report per week that shows results against the plan's
 
 ## Context
 
-When a plan is closed (by hand, or automatically two days after its week ends, E01-S03), the week's posts have evaluations from E10-S01 and the account has daily follower snapshots from E09-S02. This story adds them up in code, asks AI to write a summary and findings from the computed table only, and lets the operator edit and accept the result. The accepted findings are the input to E10-S03, which carries them into the next plan.
+When a plan is closed (by hand, or automatically two days after its week ends, E01-S03), the week's posts have evaluations from E10-S01 and the account has the follower counts the operator entered (E09-S03; E09-S04 asks for one on the first day of each plan week). This story adds them up in code, asks AI to write a summary and findings from the computed table only, and lets the operator edit and accept the result. The accepted findings are the input to E10-S03, which carries them into the next plan.
 
 ## Scope
 
@@ -54,7 +54,7 @@ When a plan is closed (by hand, or automatically two days after its week ends, E
 
 10. `totals.metrics`: for each of `reach`, `views`, `likes`, `comments`, `saves`, `shares`, `replies`: `actual` = sum of the metric over the posts' chosen snapshots, ignoring nulls; `goal` = the `target_value` of the plan's `PlanGoal` with that metric, `scope = week_total` and `format` null, else null; `attainment` = `actual / goal` rounded half up to two decimals, else null; `is_success_metric` = whether the metric is in the plan's `success_metrics`; `posts_measured` = number of posts with a non-null value.
 11. `totals.format_goals`: one entry per `PlanGoal` with `scope = week_total` and a format: `{"metric", "format", "actual", "goal", "attainment"}`, where `actual` sums only posts of that format.
-12. `totals.follower_change`: `start` = followers in the last `AccountSnapshot` dated before `week_start` (if none, the first snapshot inside the week); `end` = followers in the last snapshot dated on or before `week_end` (for an active plan, the latest snapshot); `change` = `end − start`; `goal` = the `follower_growth` `PlanGoal` target or null; `attainment` as in rule 10; `complete` = false when the plan is active, or when fewer than two snapshots exist (then `change` is null).
+12. `totals.follower_change` comes from `analytics.services.followers.follower_change(account, week_start, week_end)` (E09-S03), which compares the earliest and the latest `AccountSnapshot` dated from `week_start` to `week_end + 1`. A row dated D stands for the count at the start of D, so with a count entered on each plan-week start day these are the counts at the start of this week and of the next. `start` and `end` = their followers (for an active plan, `end` is the latest row so far); `change` = `end − start`; `goal` = the `follower_growth` `PlanGoal` target or null; `attainment` as in rule 10; `complete` = false when the plan is active, when the result is not `exact`, or when fewer than two rows exist (then `change` is null).
 13. `totals.posts`: `planned` (all slots of the plan), `skipped` (slots with status `skipped`), `published`, `unfinished` (content items of the plan that are neither `published` nor `cancelled`), `provisional`, `by_format`, `by_verdict` (verdict of each post's chosen evaluation; a post without any evaluation counts as `insufficient_data`), `goals_met`, `goals_missed`.
 14. `totals.best` and `totals.worst`: for each success metric except `follower_growth`, the publication with the highest and the lowest non-null value. `worst` is omitted for a metric with fewer than two measured posts.
 15. `totals.post_rows`: one row per post, at most 40, ordered by `published_at`: `publication`, `title`, `format`, `role`, `published_at`, `local_weekday`, `local_time`; from the chosen evaluation `primary_metric`, `value`, `goal_target`, `goal_result`, `baseline_value`, `baseline_ratio`, `verdict`, `checkpoint`; from the chosen snapshot `snapshot_checkpoint` and `values` (all seven metrics); and `provisional`. For a provisional post the snapshot can be newer than the evaluation, so `values` can be higher than `value`.
@@ -85,7 +85,7 @@ Plan 12, week 28 Nov – 4 Dec 2026, closed automatically on 7 Dec. Ten slots, o
 - Reach: the nine chosen snapshots sum to 41,250 → attainment 41,250 / 50,000 = 0.825 → `0.83`.
 - Saves: 512 → 512 / 400 = `1.28`.
 - Shares: 133, no goal → attainment null.
-- Followers: snapshot of 27 Nov = 12,400; snapshot of 4 Dec = 12,655 → change +255 → 255 / 200 = 1.275 → `1.28`.
+- Followers: count dated 28 Nov = 12,400; count dated 5 Dec = 12,655 → change +255 → 255 / 200 = 1.275 → `1.28`.
 - Four posts (two reels and two feed posts published 30 Nov – 3 Dec) have no `7d` snapshot on 7 Dec, so `provisional = 4` and `provisional_until = 2026-12-10`.
 
 ## Data
@@ -324,9 +324,9 @@ Failure handling: rules 19 and 22. A refusal or schema failure is recorded on th
 
 ### /reports
 
-`PageContainer` title "Reports", description "One report per weekly plan." Primary action "Generate report" opens a `ModalForm`: a select of the account's `closed` and `active` plans that have no accepted report (label "Week of 28 Nov – closed"); when the chosen plan already has a draft report, a radio appears: "Replace summary and findings" (`full`) or "Refresh numbers only" (`totals_only`). Submit label "Generate". The modal closes and a `JobProgress` row shows at the top of the table until the job ends.
+`PageFrame` title "Reports", description "One report per weekly plan." Primary action "Generate report" opens a `Modal` form (`useModalForm`): a select of the account's `closed` and `active` plans that have no accepted report (label "Week of 28 Nov – closed"); when the chosen plan already has a draft report, a radio appears: "Replace summary and findings" (`full`) or "Refresh numbers only" (`totals_only`). Submit label "Generate". The modal closes and a `JobProgress` row shows at the top of the table until the job ends.
 
-`ProTable` columns: Week (dates, link to `/reports/:id`), Plan status, Report status (`StatusTag`: Draft default, Accepted green; a "Provisional" tag beside it when provisional), Posts ("9 of 10"), Goals (one compact tag per success metric: "Reach 83%", green at 100% or more, red below), Followers ("+255"), Findings ("3 accepted · 2 undecided"), Applied to (link to the plan, or "—"), Generated (`DateTime`). Filter: status. Empty state: "No reports yet. A report is prepared when a plan is closed." with the "Generate report" action.
+`Table` (`useTable`) columns: Week (dates, link to `/reports/:id`), Plan status, Report status (`StatusTag`: Draft default, Accepted green; a "Provisional" tag beside it when provisional), Posts ("9 of 10"), Goals (one compact tag per success metric: "Reach 83%", green at 100% or more, red below), Followers ("+255"), Findings ("3 accepted · 2 undecided"), Applied to (link to the plan, or "—"), Generated (`DateTime`). Filter: status. Empty state: "No reports yet. A report is prepared when a plan is closed." with the "Generate report" action.
 
 ### /reports/:id
 
@@ -337,8 +337,8 @@ Body, top to bottom:
 1. **Provisional banner** (`Alert`, warning) when provisional: "4 of 9 posts are younger than their final checkpoint. Numbers may still rise. Refresh the numbers after 10 Dec for final totals." For an active plan: "This plan is still active. The report is a preview and cannot be accepted yet."
 2. **Summary** card: the text in a `TextArea` (counter 2,000) with "Save" while draft; plain text when accepted.
 3. **Results** card: one `Statistic` tile per success metric showing actual, "of {goal}" and attainment as a percentage with success or error colour; a tile "Followers" with "+255 of +200"; a tile "Posts" with "9 published · 1 skipped". Below the tiles, a column chart (`@ant-design/plots`) of actual against goal per success metric that has a goal, with axis titles and the table-view toggle.
-4. **Posts** card: `ProTable` from `post_rows`, no paging: Post (title through `ContentText`, link to `/content/:id`), Format, Published (`DateTime`), Primary metric and value ("Saves 41"), Goal tag, Vs baseline ("1.41×"), Verdict (`StatusTag`), a "Provisional" tag where set. Best and worst posts carry a small "Best reach" or "Lowest reach" tag.
-5. **Findings** card: a list. Each finding shows a type tag (Worked green, Did not work red, Insight blue), title, detail, evidence as links to the posts, recommendation in bold, a tag for the plan field ("Goals", "Slots", "Objective", "Audience", "Notes"; nothing for `none`), and for a goal suggestion the line "Suggested goal: Saves, week total, all formats, 500". Actions per finding while draft: "Accept" and "Dismiss" (toggle buttons; the chosen one is highlighted, clicking it again clears the decision), "Edit" (`DrawerForm` with every field; evidence is a multi-select of the plan's published posts), "Remove" (`Popconfirm`). Card footer: "Add finding" and "Accept all undecided". Every change sends one `PATCH` with the full list.
+4. **Posts** card: `Table` (`useTable`) from `post_rows`, no paging: Post (title through `ContentText`, link to `/content/:id`), Format, Published (`DateTime`), Primary metric and value ("Saves 41"), Goal tag, Vs baseline ("1.41×"), Verdict (`StatusTag`), a "Provisional" tag where set. Best and worst posts carry a small "Best reach" or "Lowest reach" tag.
+5. **Findings** card: a list. Each finding shows a type tag (Worked green, Did not work red, Insight blue), title, detail, evidence as links to the posts, recommendation in bold, a tag for the plan field ("Goals", "Slots", "Objective", "Audience", "Notes"; nothing for `none`), and for a goal suggestion the line "Suggested goal: Saves, week total, all formats, 500". Actions per finding while draft: "Accept" and "Dismiss" (toggle buttons; the chosen one is highlighted, clicking it again clears the decision), "Edit" (`Drawer` form (`useDrawerForm`) with every field; evidence is a multi-select of the plan's published posts), "Remove" (`Popconfirm`). Card footer: "Add finding" and "Accept all undecided". Every change sends one `PATCH` with the full list.
 
 Flows and copy:
 
@@ -370,7 +370,7 @@ States: skeletons per card while loading; job running disables Regenerate, Accep
 | ID | Task | Detail | Est. |
 | --- | --- | --- | --- |
 | E10-S02-BE1 | Totals calculator | `analytics/services/report_totals.py`: snapshot and evaluation choice per post, metric sums, format goals, counts, best and worst, post rows, provisional logic; unit tests from the worked example | 0.75 |
-| E10-S02-BE2 | Follower change | `follower_change(plan)` from `AccountSnapshot` with the start and end rules and the incomplete cases; tests | 0.25 |
+| E10-S02-BE2 | Follower change | `totals.follower_change` from `follower_change(account, week_start, week_end)` (E09-S03) with the goal, attainment and the incomplete cases; tests | 0.25 |
 | E10-S02-BE3 | AI task | Prompt files, `WeeklyFindings` schema, fake-provider fixture, registry entry | 0.5 |
 | E10-S02-BE4 | Generate job | `generate_weekly_report` task with both modes, evidence and goal-suggestion validation, corrective retry, save-totals-first behaviour, `plan_closed` receiver; tests with the fake provider including failure | 0.5 |
 | E10-S02-BE5 | API | Generate, list, detail, patch and accept endpoints with all error cases; serializers for findings; `openapi.yaml`; API tests | 0.5 |
@@ -390,7 +390,7 @@ None beyond the tests in each subtask.
 
 ## Test notes
 
-- Totals tests use the factory from E10-S01 with nine posts, mixed final and provisional snapshots, and follower snapshots for every day of the week plus the day before.
+- Totals tests use the factory from E10-S01 with nine posts, mixed final and provisional snapshots, and follower counts dated `week_start` and the next `week_start`, plus a case where the second count is missing.
 - Fake-provider fixtures for `report.weekly_findings`: a valid response, one citing unknown publications, and one with too few findings, to exercise rules 19 and 22.
 - API tests cover every row of the error tables and account scoping.
 - Panel tests: render the report page from the example JSON; accept flow with undecided findings; AI-failed state.

@@ -4,7 +4,7 @@
 
 Workflow step 07, "Check the output": every produced version is checked for design, copy, facts, rights and format before it can be scheduled. Each run ends in exactly one of the three outcomes on the workflow page:
 
-| Outcome | What the workflow page says | What the MVP does |
+| Outcome | What the workflow page says | What Phase 1 does |
 | --- | --- | --- |
 | Pass | Schedule automatically | The version is marked `passed`, the item becomes `approved`, and the scheduler (E08-S01) gives it a publication in the same step |
 | Revise | Return to production, then recheck | The item becomes `needs_revision`; a revise job makes the smallest rework that addresses the findings, creates the next version and submits it for a new check |
@@ -12,7 +12,7 @@ Workflow step 07, "Check the output": every produced version is checked for desi
 
 ## Scope
 
-**In the MVP**
+**In Phase 1**
 
 - One check run per submitted version, with five checks: `format` and `rights` by rules, `copy`, `facts` and `design` by Claude plus a few rules.
 - A fixed catalogue of finding codes, each with a severity, whether it can be fixed automatically, and what kind of rework fixes it.
@@ -24,7 +24,7 @@ Workflow step 07, "Check the output": every produced version is checked for desi
 **Left for later**
 
 - Per-account thresholds, custom checks and a rule editor.
-- Fetching reference pages from the web during the facts check (the MVP checks claims against the text stored with signals and feed items).
+- Fetching reference pages from the web during the facts check (Phase 1 checks claims against the text stored with signals and feed items).
 - Assigning review tasks to a person, due dates, comments and notifications.
 - Learning from reviewer decisions, and measuring checker accuracy against human labels.
 - Rechecking scheduled content when rights or brand rules change after approval.
@@ -99,8 +99,7 @@ E06-S07 submit ─► item in_check ─► job qc.run
 
 | Needed by | For |
 | --- | --- |
-| E08-S01 | Starts from an `approved` item with a `passed` version |
-| E08-S04 | Opens review tasks with reason `publish_failed` and `no_slot`, and resolves them through its own actions |
+| E08-S01 | Starts from an `approved` item with a `passed` version; opens review tasks with reason `no_slot`, which S06 resolves |
 | E11-S01 | Open review tasks on the attention list |
 | E11-S03 | End-to-end acceptance of all three outcomes |
 
@@ -119,3 +118,4 @@ E06-S07 submit ─► item in_check ─► job qc.run
 - Checkers implement one small interface, so a new check (for example accessibility or trademark screening) is one class plus catalogue entries.
 - The facts check takes an evidence pack. A later version can add fetched page text to the pack without changing the prompt contract.
 - `ReviewTask` can gain an assignee and comments; the queue already filters by reason and status.
+- Phase 2: review tasks with reason `publish_failed`, opened by E08-S04 when a publication fails, and resolved through E08-S04's `on_review_decision` hook (retry, request changes, reject). The reason is already in the enum.

@@ -2,12 +2,14 @@
 
 This is the reference for every table in the MVP. Story specifications refer to these names and must not redefine them. If a story needs a new field, add it here in the same change.
 
+It describes **Phase 1**, the plan to build now ([ROADMAP.md](ROADMAP.md) section 0): no Instagram API, posting by hand, metrics typed in. Tables, fields and enum values marked **(Phase 2)** belong to the Instagram API phase. Phase 2 tables are not created in Phase 1. Phase 2 fields and enum values that sit on Phase 1 tables are created with the table (so Phase 2 needs no change to them) but no Phase 1 code writes or reads them; they keep their defaults or stay null.
+
 Conventions:
 
 - Primary keys are `BigAutoField` integers, except `JobRun`, which uses a UUID so job links are not guessable.
 - Every table has `created_at` and `updated_at` (UTC). They are not repeated below.
 - Timestamps are stored in UTC. Each account has an IANA timezone used for display and for slot times.
-- Enum values are lowercase strings stored as text with `choices`. The exceptions are values copied from Instagram's API (`AccountConnection.account_type`, `Publication.container_status`), which keep Instagram's uppercase spelling.
+- Enum values are lowercase strings stored as text with `choices`. The only exceptions are values copied from Instagram's API (`AccountConnection.account_type`, `Publication.container_status`), which keep Instagram's uppercase spelling. Both are Phase 2, so every enum written in Phase 1 is lowercase.
 - "JSON" means a PostgreSQL `jsonb` column whose shape is validated by a serializer or Pydantic model before saving.
 - FK = foreign key. "null" means the column is nullable.
 
@@ -45,13 +47,13 @@ Django's built-in `auth.User`. Role is derived: `admin` when `is_superuser` is t
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `handle` | text, unique | Lowercase, no `@`; matches `^[a-z0-9._]{1,30}$`; unique including archived accounts. Only an admin can change it, and only while the connection is `disconnected` |
+| `handle` | text, unique | Lowercase, no `@`; matches `^[a-z0-9._]{1,30}$`; unique including archived accounts. Only an admin can change it. In Phase 1 there is no connection, so it can be changed at any time. (Phase 2: only while the connection is `disconnected`) |
 | `display_name` | text | 1–80 characters |
 | `timezone` | text | IANA name; default from `SOCIALHUB_DEFAULT_ACCOUNT_TIME_ZONE` |
 | `content_language` | text | `fa` (default) or `en` |
 | `week_start_day` | int 0–6 | 0 = Monday; default 5 (Saturday) |
-| `status` | enum | `active`, `archived`. Archiving forces `publishing_enabled` to false; archived accounts are skipped by all scheduled work |
-| `publishing_enabled` | bool | Default false. The stop switch for sending to Instagram |
+| `status` | enum | `active`, `archived`. Archived accounts are skipped by all scheduled work. (Phase 2: archiving forces `publishing_enabled` to false) |
+| `publishing_enabled` | bool | (Phase 2) Default false. Exists in Phase 1 but is not shown in the panel and not read by any Phase 1 code. In Phase 2 it is the stop switch for sending to Instagram |
 | `autopilot` | JSON | `{"selection": false, "brief": false, "script": false}` |
 | `posting_rules` | JSON | `{"min_gap_minutes": 120, "max_feed_per_day": 2, "max_stories_per_day": 5, "max_revisions": 2}` (`max_feed_per_day` counts reels and feed posts together). Ranges: `min_gap_minutes` 15–1440, `max_feed_per_day` 1–10, `max_stories_per_day` 1–20, `max_revisions` 0–5. `PATCH` merges keys; unknown keys are rejected |
 | `notes` | text | |
@@ -78,6 +80,8 @@ One per account, created with the account.
 Defaults: `colors` `{"primary": "#111111", "secondary": "#666666", "accent": "#1677FF", "background": "#FFFFFF", "text": "#111111"}` (stored uppercase); `fonts` `{"heading": "vazirmatn", "body": "vazirmatn"}`; `handle_display` `@{handle}`; lists and texts empty. Font keys come from the bundled registry in `apps/core/fonts/`: `vazirmatn`, `noto-sans-arabic`, `noto-naskh-arabic`, `inter`, `noto-sans`. Logos are stored files on the profile, not `Asset` rows.
 
 ### AccountConnection
+
+> **Phase 2.** Not created in Phase 1: an account has no connection to Instagram. The table is added with E00-S04.
 
 One per account.
 
@@ -109,14 +113,14 @@ Statuses and what each allows are in [INSTAGRAM-INTEGRATION.md](INSTAGRAM-INTEGR
 | `kind` | text | Dotted name; the list of kinds is below |
 | `status` | enum | `queued`, `running`, `succeeded`, `failed`, `cancelled` |
 | `account` | FK, null | |
-| `target_type` / `target_id` | text / text | `target_type` is one of `content_item`, `publication`, `plan`, `account`, `account_connection` (id = account id), `feed_source`, `research_run`, `repurpose_task`, `system` (id such as `ai`) |
+| `target_type` / `target_id` | text / text | `target_type` is one of `content_item`, `publication`, `plan`, `account`, `feed_source`, `research_run`, `repurpose_task`, `system` (id such as `ai`); (Phase 2) `account_connection` (id = account id) |
 | `progress` | int 0–100 | |
 | `message` | text | Short human-readable step |
 | `result` | JSON, null | Small result summary; IDs of what was created |
 | `error_code` / `error_detail` | text / text, null | Machine code and safe description |
 | `request_id` | text, null | From the request that created the job |
 | `celery_task_id` | text, null | |
-| `queue` | text | `default`, `render` or `publish` |
+| `queue` | text | `default` or `render`; (Phase 2) `publish` |
 | `deadline_at` | datetime, null | `started_at` plus the kind's timeout; the stale-job sweeper fails jobs past it |
 | `created_by` | FK User, null | Null for scheduled jobs |
 | `started_at` / `finished_at` | datetime, null | |
@@ -127,13 +131,13 @@ Job kinds by owning story:
 
 | Area | Kinds |
 | --- | --- |
-| Foundation (E00) | `instagram.verify`, `instagram.refresh_token`, `system.ai_test` |
+| Foundation (E00) | `system.ai_test`; (Phase 2) `instagram.verify`, `instagram.refresh_token` |
 | Research and selection (E02, E03) | `research.run`, `feeds.sync`, `selection.rank` |
 | Briefs and scripts (E04, E05) | `brief.generate`, `brief.generate_batch`, `script.generate` |
 | Production (E06) | `production.start`, `production.render`, `production.generate_image`, `copy.generate` |
 | Checks (E07) | `qc.run`, `qc.revise` |
-| Publishing (E08) | `publish.send`, `publish.verify` |
-| Analytics (E09, E10) | `analytics.refresh`, `evaluation.run`, `report.weekly`, `repurpose.suggest` |
+| Publishing (E08) | None in Phase 1. (Phase 2) `publish.send`, `publish.verify` |
+| Analytics (E09, E10) | `evaluation.run`, `report.weekly`, `repurpose.suggest`; (Phase 2) `analytics.refresh` |
 
 Stories that introduce a new kind add it here.
 
@@ -242,7 +246,7 @@ The link to content is `ContentItem.slot`. Open slots become `skipped` when the 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `account` | FK | |
-| `kind` | enum | `web_search`, `rss`. `instagram_hashtag` and `instagram_account` are reserved for E02-S03 (Later, Facebook Login adapter) and not accepted in the MVP. (`manual` exists only on `TrendSignal.kind`; it cannot be a source.) |
+| `kind` | enum | `web_search`, `rss`. `instagram_hashtag` and `instagram_account` are reserved for E02-S03 (Phase 2, Facebook Login adapter) and not accepted in Phase 1. (`manual` exists only on `TrendSignal.kind`; it cannot be a source.) |
 | `value` | text | Search query or feed URL |
 | `label` | text | |
 | `active` | bool | |
@@ -387,7 +391,7 @@ Partial unique on (`plan`, `topic`), (`plan`, `feed_item`) and (`plan`, `repurpo
 | `media_kind` | `MediaKind` | |
 | `production_mode` | `ProductionMode` | |
 | `role` | `Role`, null | Set in step 04 |
-| `status` | enum | `selected`, `briefed`, `scripted`, `in_production`, `in_check`, `needs_revision`, `in_review`, `approved`, `scheduled`, `publishing`, `published`, `failed`, `cancelled` |
+| `status` | enum | `selected`, `briefed`, `scripted`, `in_production`, `in_check`, `needs_revision`, `in_review`, `approved`, `scheduled`, `published`, `cancelled`; (Phase 2, reserved and never written in Phase 1) `publishing`, `failed` |
 | `current_brief` | FK Brief, null | Always the latest brief version |
 | `current_script` | FK ScriptVersion, null | Always the latest script version, whatever its status; the approved script is the one version with status `approved` |
 | `current_version` | FK ContentVersion, null | |
@@ -529,7 +533,7 @@ Effective rights: a `cleared` asset whose `rights_expires_at` has passed (accoun
 
 ### ContentVersion
 
-The produced package that checks read and the publisher sends. Unique on (`content_item`, `version`).
+The produced package that checks read and the operator posts from the posting pack (Phase 2: that the publisher sends). Unique on (`content_item`, `version`).
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -564,7 +568,7 @@ Append-only. Index on (`content_item`, `created_at` desc).
 | Field | Type | Notes |
 | --- | --- | --- |
 | `content_item` | FK | |
-| `type` | enum | `status_changed`, `job_started`, `job_failed`, `edited`, `qc_result`, `review_decision`, `publish_attempt`, `note` |
+| `type` | enum | `status_changed`, `job_started`, `job_failed`, `edited`, `qc_result`, `review_decision`, `note`; (Phase 2) `publish_attempt` |
 | `from_status` / `to_status` | text, null | |
 | `actor` | FK User, null | Null means the system |
 | `message` | text | |
@@ -613,8 +617,8 @@ Finding fields: `code` is `<check>.<name>` from the catalogue in `quality/catalo
 | `account` | FK | |
 | `content_item` | FK | |
 | `qc_run` | FK QCRun, null | |
-| `publication` | FK Publication, null | |
-| `reason` | enum | `qc_escalated`, `max_revisions`, `publish_failed`, `no_slot`, `manual` |
+| `publication` | FK Publication, null | Set by `publish_failed` tasks (Phase 2) |
+| `reason` | enum | `qc_escalated`, `max_revisions`, `no_slot`, `manual`; (Phase 2) `publish_failed` |
 | `detail` | text | |
 | `status` | enum | `open`, `resolved` |
 | `decision` | enum, null | `approve`, `request_changes`, `reject` |
@@ -631,7 +635,9 @@ Partial unique on (`content_item`) where `status = 'open'`: opening a second tas
 
 ### Publication
 
-One row per item. A `cancelled` row left by `withdraw` is reused when the item is approved again: version, time, slot, delivery and fingerprint are replaced, the container fields are cleared and `attempt_count` is reset to 0. Indexes on (`status`, `scheduled_at`), (`account`, `status`, `scheduled_at`), (`account`, `published_at`), and (`account`, `next_metrics_at`) where not null.
+One row per item, created by `publishing.services.scheduling.schedule_item` (E08-S01) with `delivery = manual` and `status = scheduled`. In Phase 1 a `cancelled` row always belongs to a cancelled item, which is never approved again. (Phase 2: a `cancelled` row left by `withdraw` after a `publish_failed` review is reused when the item is approved again: version, time, slot, delivery and fingerprint are replaced, the container fields are cleared and `attempt_count` is reset to 0.) Indexes on (`status`, `scheduled_at`), (`account`, `status`, `scheduled_at`), (`account`, `published_at`), and (`account`, `next_metrics_at`) where not null. Partial unique index on `remote_shortcode` where not null, so the same Instagram link cannot be recorded for two publications (E08-S05).
+
+In Phase 1 the operator posts every publication by hand from its posting pack and records it with "Mark as published" (E08-S05). The posting pack is computed, not stored: `posting_pack` on `GET /publications/{id}/`.
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -640,25 +646,28 @@ One row per item. A `cancelled` row left by `withdraw` is reused when the item i
 | `slot` | FK PlanSlot, null | |
 | `content_version` | FK | The exact version that passed |
 | `format` | `Format` | |
-| `scheduled_at` | datetime | |
-| `status` | enum | `scheduled`, `publishing`, `verifying`, `published`, `failed`, `cancelled`. `verifying` covers both a parked attempt waiting for Instagram to finish processing the container and a check after an ambiguous send (E08-S03, E08-S04) |
-| `delivery` | enum | `provider` (default; sent by the worker) or `manual` (posted by hand). Re-checked at send time: a capability that turned false switches it to `manual` |
-| `blocked_reason` | enum, null | `publishing_paused`, `connection_problem`, `daily_limit` |
-| `attempt_count` | int | Sends that used the retry budget; `PublishAttempt.number` counts every row |
-| `next_attempt_at` | datetime, null | Set while waiting to retry |
-| `caption_fingerprint` | text | First 32 hex characters of SHA-256 over the NFC-normalised, whitespace-collapsed, casefolded first 100 characters of the full caption. Empty for stories and for captions shorter than 10 characters |
-| `remote_container_id` | text, null | Container ID from `POST /{ig_user_id}/media`. The idempotency key of a send: stored in its own transaction before waiting or publishing |
-| `container_status` | enum, null | `IN_PROGRESS`, `FINISHED`, `ERROR`, `EXPIRED`, `PUBLISHED`; the last status read |
-| `container_created_at` | datetime, null | A container expires 24 hours after creation, so containers are created at send time |
-| `remote_media_id` / `remote_shortcode` | text, null | Instagram media ID and shortcode of the live post |
-| `permalink` | text, null | |
-| `published_at` | datetime, null | |
-| `published_via` | enum, null | How it actually went out: `provider` or `manual` |
-| `next_metrics_checkpoint` | `Checkpoint`, null | |
-| `next_metrics_at` | datetime, null | |
-| `lease_owner` / `lease_expires_at` | text / datetime, null | Worker claim |
+| `scheduled_at` | datetime | When the operator should post it. Once it has passed, the publication shows "Post by hand — due"; after `SOCIALHUB_MANUAL_POST_OVERDUE_MINUTES` more, "Post by hand — overdue" (E08-S05). Nothing changes automatically |
+| `status` | enum | Phase 1: `scheduled`, `published`, `cancelled`. (Phase 2, reserved and never written in Phase 1: `publishing`, `verifying`, `failed`. `verifying` covers both a parked attempt waiting for Instagram to finish processing the container and a check after an ambiguous send, E08-S03, E08-S04) |
+| `delivery` | enum | `manual` (posted by hand), the default and the only value in Phase 1. (Phase 2: `provider`, sent by the worker; re-checked at send time, and a capability that turned false switches it to `manual`) |
+| `blocked_reason` | enum, null | (Phase 2) `publishing_paused`, `connection_problem`, `daily_limit` |
+| `attempt_count` | int | (Phase 2) Sends that used the retry budget; `PublishAttempt.number` counts every row. 0 in Phase 1 |
+| `next_attempt_at` | datetime, null | (Phase 2) Set while waiting to retry |
+| `caption_fingerprint` | text | First 32 hex characters of SHA-256 over the NFC-normalised, whitespace-collapsed, casefolded first 100 characters of the full caption. Empty for stories and for captions shorter than 10 characters. (Phase 2) Computed at scheduling time for verification; keeps its empty default in Phase 1 |
+| `remote_container_id` | text, null | (Phase 2) Container ID from `POST /{ig_user_id}/media`. The idempotency key of a send: stored in its own transaction before waiting or publishing |
+| `container_status` | enum, null | (Phase 2) `IN_PROGRESS`, `FINISHED`, `ERROR`, `EXPIRED`, `PUBLISHED`; the last status read |
+| `container_created_at` | datetime, null | (Phase 2) A container expires 24 hours after creation, so containers are created at send time |
+| `remote_media_id` | text, null | Instagram media ID of the live post. Null in Phase 1: nothing looks the post up. (Phase 2: set by the worker or verification) |
+| `remote_shortcode` | text, null | Phase 1: taken from the pasted link when marked published: the shortcode of a `/p/`, `/reel/` or `/reels/` link, or the story ID of a `/stories/{user}/{id}` link (E08-S05) |
+| `permalink` | text, null | Phase 1: the link pasted in "Mark as published", without its query string (E08-S05) |
+| `published_at` | datetime, null | Phase 1: given when marked published, default now; not in the future and not more than 7 days before `scheduled_at` (E08-S05) |
+| `published_via` | enum, null | How it actually went out: `manual` in Phase 1; (Phase 2) `provider` |
+| `next_metrics_checkpoint` | `Checkpoint`, null | Set when the publication becomes `published` to its first evaluation checkpoint (`24h` for reel and feed post, `23h` for story) and moved on by E09-S04 |
+| `next_metrics_at` | datetime, null | `published_at` plus that checkpoint's age (E09-S04) |
+| `lease_owner` / `lease_expires_at` | text / datetime, null | (Phase 2) Worker claim |
 
 ### PublishAttempt
+
+> **Phase 2.** Not created in Phase 1: nothing is sent, so there are no attempts. The table is added with E08-S03.
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -677,18 +686,20 @@ One row per item. A `cancelled` row left by `withdraw` is reused when the item i
 
 Partial unique constraint on (`publication`, `checkpoint`) where `checkpoint <> 'adhoc'`.
 
+In Phase 1 every captured row is typed in by a person (E09-S03) and has `source = manual`. The evaluation checkpoints are the ones the panel asks for: `24h` then `7d` for reels and feed posts, `23h` for stories (E09-S04). The other checkpoints (`1h`, `6h`, `72h`, `adhoc`) can be entered by hand but are never asked for.
+
 | Field | Type | Notes |
 | --- | --- | --- |
 | `publication` | FK | |
 | `checkpoint` | `Checkpoint` | |
-| `status` | enum | `captured` (default) or `skipped`. Only `captured` rows are evaluated |
-| `skip_reason` | enum, null | Set only when skipped: `missed`, `insights_unavailable`, `media_not_found`, `expired`, `gave_up` |
+| `status` | enum | `captured` (default) or `skipped`. Only `captured` rows are evaluated. In Phase 1 `skipped` rows are written by `analytics.advance_entry_checkpoints` when an evaluation checkpoint's entry window ends with no numbers (E09-S04); a person can still replace one later (E09-S03) |
+| `skip_reason` | enum, null | Set only when skipped: `missed` (Phase 1); (Phase 2) `insights_unavailable`, `media_not_found`, `expired`, `gave_up` |
 | `age_minutes` | int | Actual age when captured |
-| `captured_at` | datetime | |
+| `captured_at` | datetime | When the numbers were read |
 | `reach`, `views`, `likes`, `comments`, `saves`, `shares`, `replies` | int, null | Null when not available |
-| `unavailable` | JSON list of `Metric` | Metrics the provider could not return |
-| `extra` | JSON | Other provider fields |
-| `source` | enum | `provider`, `manual` |
+| `unavailable` | JSON list of `Metric` | Phase 1: applicable metrics left out of a manual entry. (Phase 2: also metrics the provider could not return) |
+| `extra` | JSON | Phase 1: `replaced` (the previous values when an entry is replaced, E09-S03). (Phase 2: other provider fields) |
+| `source` | enum | `manual` (the only Phase 1 value); (Phase 2) `provider` |
 
 ### AccountSnapshot
 
@@ -697,12 +708,12 @@ Unique on (`account`, `date`).
 | Field | Type | Notes |
 | --- | --- | --- |
 | `account` | FK | |
-| `date` | date | In the account timezone. Taken at 00:10 local time, so a row dated D describes the end of D − 1; a plan week's change compares the rows dated `week_start` and `week_end` + 1 |
+| `date` | date | In the account timezone. A plan week's change compares the rows dated `week_start` and the next `week_start` (`week_end` + 1). In Phase 1 rows are typed in (E09-S03), and the panel asks for one on each plan-week start day that has no row (E09-S04). (Phase 2: taken daily at 00:10 local time, so a row dated D describes the end of D − 1) |
 | `captured_at` | datetime | |
 | `followers` | int | |
 | `following` / `media_count` | int, null | Null when a manual entry gives only the follower count |
 | `follower_change` | int, null | Against the previous snapshot |
-| `source` | enum | `provider`, `manual` |
+| `source` | enum | `manual` (the only Phase 1 value); (Phase 2) `provider` |
 
 ### PerformanceEvaluation
 
@@ -778,7 +789,7 @@ Finding:
 ## 11. Relationships at a glance
 
 ```text
-InstagramAccount ─┬─ BrandProfile, AccountConnection
+InstagramAccount ─┬─ BrandProfile, AccountConnection (Phase 2)
                   ├─ SlotTemplate
                   ├─ WeeklyPlan ─┬─ PlanGoal
                   │              ├─ PlanSlot ◄──── ContentItem.slot
@@ -792,7 +803,7 @@ InstagramAccount ─┬─ BrandProfile, AccountConnection
                                   ├─ ContentVersion (versions) ─ QCRun ─ QCResult
                                   ├─ ReviewTask
                                   ├─ ContentEvent
-                                  └─ Publication ─┬─ PublishAttempt
+                                  └─ Publication ─┬─ PublishAttempt (Phase 2)
                                                   ├─ MetricSnapshot
                                                   └─ PerformanceEvaluation ─ RepurposeTask
 ```

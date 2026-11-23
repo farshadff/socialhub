@@ -313,9 +313,9 @@ Failure handling: rule 9. Schema or refusal failures are recorded on the `AIRun`
 
 ### Repurpose tasks section on /selection
 
-On the Candidates tab of `/selection` (E03-S03), above the candidates table, a collapsible `ProCard` titled "Repurpose tasks" with a count badge of `open` and `in_selection` tasks. It is expanded when the count is above zero. Header controls: a segmented filter "Active" (`open,in_selection`, default), "Used", "Dismissed"; no create button here, because a task always starts from a post.
+On the Candidates tab of `/selection` (E03-S03), above the candidates table, a collapsible `Card` titled "Repurpose tasks" with a count badge of `open` and `in_selection` tasks. It is expanded when the count is above zero. Header controls: a segmented filter "Active" (`open,in_selection`, default), "Used", "Dismissed"; no create button here, because a task always starts from a post.
 
-`ProTable`, paged at 10:
+`Table` (`useTable`), paged at 10:
 
 | Column | Content |
 | --- | --- |
@@ -326,7 +326,7 @@ On the Candidates tab of `/selection` (E03-S03), above the candidates table, a c
 | Evidence | The `evidence_score` number with the tooltip "Used as the evidence score when candidates are ranked" |
 | Status | `StatusTag`: Open (cyan), In selection (blue), Used (green), Dismissed (default). Under "In selection": "Rank 2 in Week of 12 Dec" from `candidate`. Under "Used": link to the new item |
 | Expires | Relative date; warning colour in the last 5 days |
-| Actions | "Edit" (`ModalForm`: Suggested angle `TextArea` with counter 600 and `dir="auto"`, Formats multi-select limited to two), "Dismiss" (`Popconfirm` with an optional reason input: "Dismiss this task? It will be removed from ranking."), and on dismissed rows "Reopen" |
+| Actions | "Edit" (`Modal` form (`useModalForm`): Suggested angle `TextArea` with counter 600 and `dir="auto"`, Formats multi-select limited to two), "Dismiss" (`Popconfirm` with an optional reason input: "Dismiss this task? It will be removed from ranking."), and on dismissed rows "Reopen" |
 
 Empty state: "No repurpose tasks. Posts that clearly beat their baseline appear here after their final evaluation."
 
@@ -336,7 +336,7 @@ After any change the candidates table shows the hint "Repurpose tasks changed. R
 
 On the `EvaluationCard` header (E10-S01) and on `/analytics/posts/:publicationId`, a button "Create repurpose task". It is hidden when the post already has an `open` or `in_selection` task; in that case a link "Repurpose task open" goes to `/selection` with the section expanded. For a final `outperforming` evaluation the card shows "A repurpose task was created automatically." with the same link.
 
-The button opens a `ModalForm`: Reason (optional, counter 500), Suggested angle (optional; helper text "Leave empty to get a suggestion"), Formats (pre-selected with the defaults for the source format). Submit label "Create task". Success message: "Repurpose task created. It will appear in the next ranking."
+The button opens a `Modal` form (`useModalForm`): Reason (optional, counter 500), Suggested angle (optional; helper text "Leave empty to get a suggestion"), Formats (pre-selected with the defaults for the source format). Submit label "Create task". Success message: "Repurpose task created. It will appear in the next ranking."
 
 ### States
 

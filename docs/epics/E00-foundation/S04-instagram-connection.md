@@ -1,9 +1,11 @@
 # E00-S04 — Connect an Instagram account (Meta app setup, OAuth, provider layer)
 
+> **Phase 2 — not built in Phase 1.** Phase 1 accounts have no Instagram connection ([E00-S03](S03-accounts-and-brand.md)): the operator posts by hand from the posting pack (E08-S05) and types the numbers in (E09-S03, E09-S04), so where this spec says E00-S03 creates `AccountConnection` or exposes `publishing_enabled`, Phase 2 adds that part.
+
 | | |
 | --- | --- |
 | Epic | E00 Foundation |
-| Priority | Must |
+| Priority | Phase 2 |
 | Estimate | BE 4 d · FE 1.5 d · QA 0 d |
 | Depends on | E00-S03 (account and connection rows), E00-S06 (jobs, `JobButton`, `JobProgress`, `media_url`). The setup spike (BE1) and the `graph_api` adapter (BE2) depend on nothing and start on day 1 |
 | Needed by | E04-S01 (format limits and the JPEG rule from the spike), E08-S03 and E08-S04 (publishing), E09-S01 and E09-S02 (metrics and followers), E11-S01 (connection attention items), E11-S03 (fake provider hooks) |
@@ -20,7 +22,7 @@ The largest risk is access, not code. The company must be allowed to hold a Meta
 
 The story then builds the provider layer, the OAuth connect flow, token storage and renewal, daily verification and the Connection tab. The `graph_api` adapter's publishing and insight methods are built here only as far as the spike needs them; E08-S03 finishes publishing and listing, and E09-S01 finishes insights with the metric map the spike records. The `fake` provider implements the whole interface here, so E08 and E09 can be built and tested before then.
 
-The current `backend/config/settings.py` refuses to start unless the publisher is `disabled`. This story replaces that guard.
+The scaffold's publisher guard in `backend/config/settings.py` is already removed in Phase 1 by E00-S05 (rule 35 there).
 
 ## Scope
 
@@ -248,7 +250,7 @@ Fake tokens look like `fake-token-{account_id}-{n}`, last 60 days and refresh li
 - `JobRun` kinds: `instagram.verify` and `instagram.refresh_token`, target `account_connection`, timeout 5 minutes, each in the other's `conflicts_with`, `prunable=True`.
 - Redis keys: `ig:oauth:{state}` (10 minutes), `ig:lock:{account_id}` (at most 300 s), `fake:ig:*` (testing hooks only).
 - Settings added: every row of INSTAGRAM-INTEGRATION.md section 9, plus `SOCIALHUB_PANEL_URL`, where the callback sends the browser back (default `http://localhost:5173`; hosted `https://{SOCIALHUB_DOMAIN}`).
-- Settings removed: `SOCIALHUB_PUBLISHER_PROVIDER`, `SOCIALHUB_PUBLISHING_ENABLED` and the startup guard that requires them; `DisabledPublisher` in `apps/core/providers.py`. The per-account `publishing_enabled` switch replaces them. `.env.example`, `compose.yaml` comments and the root `README.md` are updated to match.
+- Settings removed: none. `SOCIALHUB_PUBLISHER_PROVIDER`, `SOCIALHUB_PUBLISHING_ENABLED`, the startup guard and `DisabledPublisher` are removed in Phase 1 by E00-S05 (rule 35 there). The per-account `publishing_enabled` switch takes their role in Phase 2.
 - New dependencies: `httpx` and `cryptography`; `respx` for tests. No Instagram SDK.
 - New document: `docs/spikes/E00-S04-meta-setup.md` (rule 6).
 
@@ -733,7 +735,7 @@ States: skeleton while loading; `PageError` with Retry on load failure; the acco
 18. Given an operator, when they open the Connection tab, then they can read everything and run "Check connection" but see no type select, Connect, Refresh token or Disconnect controls, and the admin endpoints return `403 permission_denied`.
 19. Given two tasks call `account_session` for the same account at once, when they run, then their provider calls do not overlap; given the lock stays held longer than `wait_seconds`, then the second raises `AccountBusy`.
 20. Given recorded Graph error bodies for codes 190, 10, 4, 9 with the recorded subcode, 100 with subcode 33, and an HTTP 503, when the adapter receives them, then it raises `TokenInvalid`, `PermissionMissing`, `RateLimited`, `QuotaExceeded`, `NotFound` and `TransientError` respectively, and no exception text contains the token.
-21. Given the backend starts without `SOCIALHUB_PUBLISHER_PROVIDER` and `SOCIALHUB_PUBLISHING_ENABLED`, then it boots normally; the old guard is gone.
+21. Moved to E00-S05 (acceptance criterion 14 there): the backend boots without the old publisher variables.
 
 ## Subtasks
 
@@ -744,7 +746,7 @@ States: skeleton while loading; `PageError` with Retry on load failure; the acco
 | E00-S04-BE1 | Meta app setup spike | Rows 1–5 with the product owner on day 1; `ig_spike` command with `make-media` and `upload` (rules 2–3); rows 6–29 over week 1; `docs/spikes/E00-S04-meta-setup.md`; the "(confirm in setup)" marks in INSTAGRAM-INTEGRATION.md replaced with results; `SOCIALHUB_IG_API_VERSION` pinned; limits handed to E04-S01 and metric names to E09-S01 (rules 1–6). | 1.0 |
 | E00-S04-BE2 | `graph_api` adapter | `apps/instagram/providers/graph_api.py`: `httpx` client with version, timeouts and proxy; logging hook without query strings; connection methods and `account_stats` complete; spike-level publishing, listing and insight methods; the error mapping table (rules 9–12). Tests with `respx` on response bodies recorded in the spike, tokens replaced. | 0.75 |
 | E00-S04-BE3 | Interface, registry, fake and manual | `providers/base.py` (protocol, dataclasses, errors), `registry.py`, `fake.py` (every method, remote account, call counts, scenarios, fake OAuth codes, `script()`, Redis-backed state under testing hooks), `manual.py`; capability computation with overrides (rules 7–8, 13–16). Contract tests that run against `fake` and `graph_api`. | 0.5 |
-| E00-S04-BE4 | Token encryption, lock and helpers | `apps/core/crypto.py` with `MultiFernet` and the startup check; `reencrypt_secrets` command; `apps/instagram/session.py` (`account_session`); `services.report_connection_error`; `media.public_url`; the settings of INSTAGRAM-INTEGRATION.md section 9 plus `SOCIALHUB_PANEL_URL`, and the startup checks; old guard, variables and `DisabledPublisher` removed; `.env.example` and README (rules 17–22, 42). Tests for round trip, rotation, lock exclusion, `AccountBusy` and each error reaction. | 0.5 |
+| E00-S04-BE4 | Token encryption, lock and helpers | `apps/core/crypto.py` with `MultiFernet` and the startup check; `reencrypt_secrets` command; `apps/instagram/session.py` (`account_session`); `services.report_connection_error`; `media.public_url`; the settings of INSTAGRAM-INTEGRATION.md section 9 plus `SOCIALHUB_PANEL_URL`, and the startup checks; `.env.example` and README (rules 17–22, 42). Tests for round trip, rotation, lock exclusion, `AccountBusy` and each error reaction. | 0.5 |
 | E00-S04-BE5 | Connection endpoints and OAuth callback | Serializer without secrets and with `active_job`; `GET`, `PATCH` and `DELETE` connection, `connect`, and the public callback with the step table, single-use state, redirects and headers; disconnect side effects; `instagram_not_connected` and `instagram_permission_missing` in `apps/core/errors.py`; `openapi.yaml`; the `instagram` block of `GET /system/status/` (rules 23–29, 38, 41). API tests for every error row and every callback step. | 0.75 |
 | E00-S04-BE6 | Token lifecycle jobs | Job kinds `instagram.verify` and `instagram.refresh_token` with conflicts and `prunable`; the verify and refresh-token endpoints; tasks `instagram.refresh_tokens` and `instagram.verify_all` with their Beat entries; the status transition service for rule 35 (rules 30–37, 39–40). Tests with a frozen clock for every transition. | 0.5 |
 

@@ -233,11 +233,11 @@ None.
 
 ### Library page — `/library`
 
-`PageContainer` titled "Library" with the description "Images, clips and music for this account, with their usage rights." Primary action: **Upload**.
+`PageFrame` titled "Library" with the description "Images, clips and music for this account, with their usage rights." Primary action: **Upload**.
 
 - **Filter bar** (above the grid): search box; `Segmented` for kind (All, Images, Video, Audio, Documents); selects for Rights (Cleared, Unknown, Restricted, Expired), Origin (Uploaded, Licensed, AI generated, Rendered) and Scope (Library only — default, All, Used, Unused).
-- **Grid/list toggle.** Grid shows cards with the thumbnail (audio and documents show an icon), file name, size or duration, `RightsTag`, and an "In use" tag. List is a `ProTable` with columns Preview, Name, Kind, Role, Size, Dimensions/Duration, Origin, Rights, Expires, Added, Used.
-- **Asset drawer** (click a card or row): large preview (`<img>`, `<video controls>`, `<audio controls>`, or a link for PDF), a `ProDescriptions` block with file facts, an editable form for Role, Rights status, Licence note, Source URL, Expiry date, a "Used in" list linking to `/content/:id`, and **Save**, **Download**, **Delete**.
+- **Grid/list toggle.** Grid shows cards with the thumbnail (audio and documents show an icon), file name, size or duration, `RightsTag`, and an "In use" tag. List is a `Table` (`useTable`) with columns Preview, Name, Kind, Role, Size, Dimensions/Duration, Origin, Rights, Expires, Added, Used.
+- **Asset drawer** (click a card or row): large preview (`<img>`, `<video controls>`, `<audio controls>`, or a link for PDF), a `Descriptions` block with file facts, an editable form for Role, Rights status, Licence note, Source URL, Expiry date, a "Used in" list linking to `/content/:id`, and **Save**, **Download**, **Delete**.
 - **Delete** uses `Modal.confirm`: "Delete {file name}? This cannot be undone." It is disabled with the tooltip "Used in {n} item(s)" when `in_use`.
 
 ### `AssetUploader`

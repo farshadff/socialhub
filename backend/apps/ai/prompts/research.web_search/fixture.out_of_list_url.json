@@ -1,0 +1,7 @@
+{
+  "text": "1. https://example.com/fake-result-1 — Example Coffee News, 2026-11-20. Cafés report more orders of filter coffee. [fixture:out_of_list_url]",
+  "citations": [
+    {"url": "https://example.com/fake-result-1", "title": "Why filter coffee is back on café menus"},
+    {"url": "https://example.com/fake-result-2", "title": "Batch brew is having a moment"}
+  ]
+}

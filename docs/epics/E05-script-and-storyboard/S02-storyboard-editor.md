@@ -241,12 +241,12 @@ Route: `/content/:id`, tab **Script**. Built in `src/pages/content/workspace/tab
 
 | Part | Component | Detail |
 | --- | --- | --- |
-| Header | `ProCard` title area | Version number, `StatusTag` for the version status, origin tag ("AI" or "Edited by {user}"), "written from brief v{n}". Buttons on the right. |
+| Header | `Card` title area | Version number, `StatusTag` for the version status, origin tag ("AI" or "Edited by {user}"), "written from brief v{n}". Buttons on the right. |
 | Problems | `Alert` type warning | "{n} problems must be fixed before this script can be approved." Each issue is a link that scrolls to and focuses its field. Hidden when there are none. |
-| Story | `ProForm` fields | `ProFormTextArea` scenario (rows 4), `ProFormText` hook, CTA, music hint. Counters show `n/limit` and switch to the `colorError` token past the limit. Music hint hidden for image formats. |
-| Shots | `EditableProTable` | Inline editing, one row per shot. Type is a select (`Footage`, `Graphic`, `Text`; options limited by `allowed_shot_types`). Duration is `InputNumber` (whole seconds) — read-only in `motion` mode with a tooltip "Sum of this shot's frames". Row drag handle reorders. Row menu: "Add frame to this shot", "Delete shot". Hidden for image formats. |
-| Frames | Grid of `ProCard`s, four per row at 1280 px | Each card: header "{index} · {template label}" with move-left, move-right, duplicate and delete icon buttons (each with an accessible name); a schematic preview box in the format's aspect ratio (9:16 or 4:5) showing headline and body laid out as plain text with `ContentText`; then fields: Template (select with the purpose as option description), Shot (select; hidden for image formats), Headline, Body (`TextArea`; for `list` a helper "One point per line, 2–5 lines"), Background image description (`TextArea`, label marks it required for `image_caption`), Duration (seconds; hidden for image formats), Transition (select; hidden for image formats). |
-| Design notes | `ProForm` in a collapsible `ProCard`, open by default | Five `ProFormTextArea` fields and two `ProFormList` lists ("Do", "Don't") with at most six rows each. |
+| Story | `Form` (`useForm`) fields | `Input.TextArea` scenario (rows 4), `Input` hook, CTA, music hint. Counters show `n/limit` and switch to the `colorError` token past the limit. Music hint hidden for image formats. |
+| Shots | editable `Table` (`useEditableTable`) | Inline editing, one row per shot. Type is a select (`Footage`, `Graphic`, `Text`; options limited by `allowed_shot_types`). Duration is `InputNumber` (whole seconds) — read-only in `motion` mode with a tooltip "Sum of this shot's frames". Row drag handle reorders. Row menu: "Add frame to this shot", "Delete shot". Hidden for image formats. |
+| Frames | Grid of `Card`s, four per row at 1280 px | Each card: header "{index} · {template label}" with move-left, move-right, duplicate and delete icon buttons (each with an accessible name); a schematic preview box in the format's aspect ratio (9:16 or 4:5) showing headline and body laid out as plain text with `ContentText`; then fields: Template (select with the purpose as option description), Shot (select; hidden for image formats), Headline, Body (`TextArea`; for `list` a helper "One point per line, 2–5 lines"), Background image description (`TextArea`, label marks it required for `image_caption`), Duration (seconds; hidden for image formats), Transition (select; hidden for image formats). |
+| Design notes | `Form` (`useForm`) in a collapsible `Card`, open by default | Five `Input.TextArea` fields and two `Form.List` lists ("Do", "Don't") with at most six rows each. |
 
 All text inputs that hold content use `dir="auto"` so Persian text aligns right inside the English panel.
 
@@ -254,7 +254,7 @@ All text inputs that hold content use `dir="auto"` so Persian text aligns right 
 
 | Button | Enabled when | Behaviour |
 | --- | --- | --- |
-| "Save as new version" (primary while there are unsaved changes) | `actions.can_edit` and the form differs from the loaded version | Opens a small `ModalForm` with one optional field "What changed? (optional)" (500 characters) and "Save". Calls `PUT` with `base_version`. Success message: "Saved as version {n}." The editor reloads from the response. |
+| "Save as new version" (primary while there are unsaved changes) | `actions.can_edit` and the form differs from the loaded version | Opens a small `Modal` form (`useModalForm`) with one optional field "What changed? (optional)" (500 characters) and "Save". Calls `PUT` with `base_version`. Success message: "Saved as version {n}." The editor reloads from the response. |
 | "Approve script" (primary when there are no unsaved changes) | `actions.can_approve` and no unsaved changes | `Modal.confirm`: "Approve version {n}? Production starts right away." On success: message "Script approved. Production started." and the workspace header status updates; the Production tab shows the running job. Disabled with a tooltip when not allowed: "Save your changes first", "Fix the listed problems first", or "The brief changed after this script was written. Regenerate or save a new version." |
 | "Write script by hand" | No script exists and the brief is approved | Loads an empty package with the minimum number of shots and frames for the format, so the operator can fill it in and save as version 1 (`base_version: 0`). |
 
@@ -304,7 +304,7 @@ All text inputs that hold content use `dir="auto"` so Persian text aligns right 
 | --- | --- | --- | --- |
 | E05-S02-FE1 | Editor state and data layer | `useScriptEditor` hook: loads the script and `GET /formats/` limits, holds the working package, dirty tracking, index renumbering, duration roll-ups per mode (rule 18), client-side issue computation mirroring the server codes. Service functions for `PUT` and approve. Unit tests for renumbering, roll-ups and issue computation. | 0.75 |
 | E05-S02-FE2 | Story fields and design notes | Story card and design notes card with counters, `dir="auto"` inputs, limits from the registry. | 0.5 |
-| E05-S02-FE3 | Shot table | `EditableProTable` with type select, duration rules per mode, drag reorder, add and delete with frame cascade confirmation; hidden for image formats. | 0.75 |
+| E05-S02-FE3 | Shot table | editable `Table` (`useEditableTable`) with type select, duration rules per mode, drag reorder, add and delete with frame cascade confirmation; hidden for image formats. | 0.75 |
 | E05-S02-FE4 | Frame cards | Card grid with template select, shot select, fields per template, schematic preview box in the format's aspect ratio, move, duplicate, delete, add; single-card mode for image formats. | 1 |
 | E05-S02-FE5 | Save, approve and states | Header with version info and buttons, save modal, approve confirmation, problems alert with field focus, unsaved-changes guard, conflict dialog, read-only and job-running states, "Write script by hand". Component tests for save, conflict, approve disabled reasons and read-only. | 0.5 |
 

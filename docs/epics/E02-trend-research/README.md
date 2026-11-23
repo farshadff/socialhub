@@ -8,19 +8,22 @@ Before a week is planned in detail, the system looks at what the account's audie
 
 ## Scope
 
-**In the MVP**
+**In Phase 1**
 
 - A per-account watchlist of research sources: web search queries and RSS feeds.
 - A research run, started by hand from the panel, that collects signals from every active source and tolerates sources that fail.
-- Signals collected from web search (Claude with the web search tool), RSS and manual entry. A manual signal can link an Instagram post the operator found by hand.
+- Signals collected from web search (Claude with the web search tool), RSS and manual entry. Phase 1 has no Instagram API, so an Instagram post the operator finds by hand enters as a manual signal with its link (and its numbers, when known).
 - Deduplication of signals by a URL fingerprint.
 - AI synthesis of signals into topics with summary, "why now", hooks, suggested formats and keywords, each linked to the signals that support it.
 - An evidence score computed in code, with a visible breakdown.
 - A research workspace in the panel: review topics, shortlist or dismiss them, inspect signals and sources, add a signal or topic by hand, see run history.
 
+**Phase 2 (Instagram API)**
+
+- Public Instagram signals from hashtags and other accounts (E02-S03). They need hashtag search and business discovery, which exist only with the Facebook Login adapter `graph_api_fb`, not with the Instagram Login API Phase 2 connects through.
+
 **Left for later**
 
-- Public Instagram signals from hashtags and other accounts (E02-S03). They need hashtag search and business discovery, which the Instagram Login API used in the MVP does not offer.
 - Scheduled (automatic) research runs. The run service is callable from Celery Beat; only the schedule is missing.
 - Google Trends, YouTube, X, TikTok or paid trend APIs. Each is one more collector.
 - Embedding-based clustering and cross-week topic tracking.
@@ -35,12 +38,12 @@ Before a week is planned in detail, the system looks at what the account's audie
 | --- | --- | --- | --- | --- | --- |
 | [E02-S01](S01-research-sources.md) | Research sources watchlist | Must | 1 | 1.5 | |
 | [E02-S02](S02-collect-signals.md) | Collect signals from web search, RSS and manual entry | Must | 3 | 0.5 | |
-| [E02-S03](S03-instagram-public-signals.md) | Collect public Instagram signals (moved out of the MVP) | Later | 0 | 0 | |
+| [E02-S03](S03-instagram-public-signals.md) | Collect public Instagram signals | Phase 2 | — | — | |
 | [E02-S04](S04-synthesize-topics.md) | Synthesize signals into topics and hooks | Must | 2 | 0 | |
 | [E02-S05](S05-research-workspace.md) | Research workspace | Must | 0.5 | 3 | |
-| | **Total** | | **6.5** | **5** | |
+| | **Phase 1 total** | | **6.5** | **5** | |
 
-E02-S03 is specified for later (estimated BE 2 d when scheduled) and is not counted in the total.
+E02-S03 is specified for Phase 2 and is not counted in the total (the story file estimates BE 2 d, not counting the `graph_api_fb` connect flow).
 
 ## Flow
 
@@ -100,6 +103,6 @@ On a test account with at least two web search sources and one RSS feed:
 
 - Add a Beat entry that starts a run for each account two days before its next week begins.
 - Add collectors behind the same `Collector` protocol; each returns `SignalDraft` objects and nothing else changes.
-- Public Instagram signals (E02-S03) once accounts can connect through the Facebook Login adapter `graph_api_fb`. That story re-enables the reserved source kinds for hashtags and accounts.
+- Phase 2: public Instagram signals (E02-S03) once accounts can connect through the Facebook Login adapter `graph_api_fb`. That story re-enables the reserved source kinds for hashtags and accounts.
 - Replace the evidence formula in `research/services/evidence.py`; the stored breakdown keeps old scores explainable.
 - Track a topic across weeks by matching keywords, so "rising for three weeks" can raise the score.

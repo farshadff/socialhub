@@ -302,20 +302,20 @@ Route `/selection`, tabs "Feed items" and "Feed sources". This story creates the
 
 ### Feed items tab
 
-- `ProTable` with server-side paging (20 per page).
+- `Table` (`useTable`) with server-side paging (20 per page).
 - Columns: Title (`ContentText`, opens `url` in a new tab; summary in an expandable row), Source, Published (`DateTime`, "—" when null), Status (`StatusTag`: New grey, Eligible cyan, Ignored grey, Used green), Content item (link "Open item" when present), Actions.
 - Filters in the table search form: Source (select), Status (multi-select, default New and Eligible), Search.
 - Row actions by status: New → "Mark eligible", "Ignore"; Eligible → "Ignore"; Ignored → "Mark eligible"; Used → "Mark eligible" (shown only when `content_item` is null or cancelled).
 - Bulk actions on selected rows: "Mark eligible", "Ignore". They call `PATCH` per row and report "5 updated, 1 could not be changed".
-- Primary action: "Add item" opens a `ModalForm` with Title, Summary, Link, Image link, Published date. Success message: "Item added".
+- Primary action: "Add item" opens a `Modal` form (`useModalForm`) with Title, Summary, Link, Image link, Published date. Success message: "Item added".
 - Empty state: "No feed items yet. Add a feed source or add an item by hand." with buttons "Add feed source" (switches tab) and "Add item".
 
 ### Feed sources tab
 
-- `ProTable`, no paging needed (≤ 20 rows).
+- `Table` (`useTable`), no paging needed (≤ 20 rows).
 - Columns: Name, Kind (RSS, JSON endpoint, Manual), Link (truncated, copy button), Active (switch; calls `PATCH`), Last sync (`DateTime` plus a tag: OK green, Empty grey, Error red with the code in a tooltip), Items (eligible / total), Actions.
 - Row actions: "Sync now" (`JobButton`; on success shows "4 new, 1 updated"; on failure shows the mapped error text), "Edit", "Delete" (`Modal.confirm`: "Delete Company blog and its 11 items?").
-- Primary action: "Add source" opens a `ModalForm`:
+- Primary action: "Add source" opens a `Modal` form (`useModalForm`):
   - Kind (radio: RSS or Atom feed, JSON endpoint), Name, Link, "Make new items eligible automatically" (switch, on), "Only items newer than" (number, days, 14).
   - For JSON endpoint: Items path, and one input per field path (ID, Title, Summary, Link, Image link, Published date) with ID and Title required, plus "Auth header variable" with helper text "Name of a server environment variable holding one header, for example `SOCIALHUB_FEED_CATALOGUE_AUTH`. Ask an admin to set it."
 - After creating a source, the panel starts a sync automatically and shows its progress in the row.
@@ -373,8 +373,8 @@ Route `/selection`, tabs "Feed items" and "Feed sources". This story creates the
 
 | ID | Task | Detail | Est. |
 | --- | --- | --- | --- |
-| E03-S01-FE1 | Selection page scaffold | Route `/selection`, `PageContainer`, four tabs bound to `?tab=`, placeholders for Candidates and Proposal, typed services for feeds in `src/services/socialhub/feeds.ts`, status labels in `StatusTag`. | 0.25 |
-| E03-S01-FE2 | Feed sources tab | Table, active switch, add and edit `ModalForm` with kind-dependent fields, "Sync now" with `JobButton`, delete confirm, error text map. | 0.75 |
+| E03-S01-FE1 | Selection page scaffold | Route `/selection`, `PageFrame`, four tabs bound to `?tab=`, placeholders for Candidates and Proposal, typed services for feeds in `src/services/socialhub/feeds.ts`, status labels in `StatusTag`. | 0.25 |
+| E03-S01-FE2 | Feed sources tab | Table, active switch, add and edit `Modal` form (`useModalForm`) with kind-dependent fields, "Sync now" with `JobButton`, delete confirm, error text map. | 0.75 |
 | E03-S01-FE3 | Feed items tab | Table with filters, expandable summary, row and bulk status actions, "Add item" form. | 0.75 |
 | E03-S01-FE4 | States and tests | Empty, loading, error and conflict states; component tests for the kind-dependent form and the status actions. | 0.25 |
 

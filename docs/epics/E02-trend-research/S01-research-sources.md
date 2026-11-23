@@ -232,9 +232,9 @@ None.
 
 **Route:** `/research`, sidebar item "Research". The active tab is kept in the query string: `/research?tab=sources`. Default tab is `topics`.
 
-**Page frame:** `PageContainer` titled "Research" with the description "Find what your audience is paying attention to, and keep the evidence." Tabs: Topics, Signals, Sources, Runs. In this story the Topics, Signals and Runs tabs render an `Empty` with the text "Coming with the research workspace." The header's primary action ("Run research") is added by E02-S02.
+**Page frame:** `PageFrame` titled "Research" with the description "Find what your audience is paying attention to, and keep the evidence." Tabs: Topics, Signals, Sources, Runs. In this story the Topics, Signals and Runs tabs render an `Empty` with the text "Coming with the research workspace." The header's primary action ("Run research") is added by E02-S02.
 
-**Sources tab:** a `ProTable` inside a `ProCard`.
+**Sources tab:** a `Table` (`useTable`) inside a `Card`.
 
 | Column | Content |
 | --- | --- |
@@ -261,7 +261,7 @@ Tooltip text for `last_status`:
 | `error:refused` | "The AI declined this search. Rephrase the query." |
 | `error:provider_not_configured` | "The AI provider is not configured." |
 
-**Add / edit modal** (`ModalForm`, title "Add source" or "Edit source"):
+**Add / edit modal** (`Modal` form (`useModalForm`), title "Add source" or "Edit source"):
 
 | Field | Control | Notes |
 | --- | --- | --- |
@@ -316,8 +316,8 @@ Client-side validation mirrors rule 4 so most mistakes are caught before the req
 
 | ID | Task | Detail | Est. |
 | --- | --- | --- | --- |
-| E02-S01-FE1 | Page shell and services | Route `/research` in `config/routes.ts`, `src/pages/research/index.tsx` with `PageContainer`, four tabs bound to `?tab=`, placeholders for three tabs. `src/services/socialhub/research.ts` with typed calls for sources. | 0.5 d |
-| E02-S01-FE2 | Sources table | `src/pages/research/SourcesTab.tsx`: `ProTable` with columns, filters, inline active switch with optimistic update and rollback, last-result tag with tooltip map, availability tag. All page states. | 0.5 d |
+| E02-S01-FE1 | Page shell and services | Resource and route `/research` in `src/App.tsx`, `src/pages/research/index.tsx` with `PageFrame`, four tabs bound to `?tab=`, placeholders for three tabs. `src/services/socialhub/research.ts` with typed calls for sources. | 0.5 d |
+| E02-S01-FE2 | Sources table | `src/pages/research/SourcesTab.tsx`: `Table` (`useTable`) with columns, filters, inline active switch with optimistic update and rollback, last-result tag with tooltip map, availability tag. All page states. | 0.5 d |
 | E02-S01-FE3 | Add, edit, delete | `SourceFormModal.tsx` with kind-dependent label, placeholder and client validation; server field errors mapped to fields; delete with `Popconfirm`. Component tests for validation and the limit message. | 0.5 d |
 
 ### Test
